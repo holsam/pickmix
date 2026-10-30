@@ -1,7 +1,7 @@
 [project]
 name = "pickmix"
 version = "0.0.0"
-description = "Add your description here"
+description = "Multi-kind particle picking GUI for cryo-ET sub-tomogram-averaging workflows."
 readme = "README.md"
 authors = [
     { name = "Sam Holland", email = "hol_sam@icloud.com" }
