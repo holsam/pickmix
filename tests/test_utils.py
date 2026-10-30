@@ -1,5 +1,5 @@
 '''
-pickmix: tests for utils modules
+pickmix: tests for the utils modules
 '''
 
 # Import external dependencies
@@ -9,8 +9,12 @@ from pathlib import Path
 
 # Import internal pickmix objects
 from pickmix.config import load_config
-from pickmix.utils.io import TomogramError, find_tomograms, load_volume, volume_path
+from pickmix.utils.coords import from_centred_angstrom, to_centred_angstrom
+from pickmix.utils.io import Tomogram, TomogramError, find_tomograms, load_volume, volume_path
 from pickmix.utils.star import merge_tomograms, read_star_loop, write_star_loop
+
+# TOMO: 32 x 24 x 16 unbinned voxels at 1.34 A, reconstructed at 5.36 A (bin 4)
+TOMO: Tomogram = Tomogram('T', 'T', Path('r.mrc'), None, 5.36, (4, 6, 8), 1.34, (32, 24, 16))
 
 # TestStar: STAR reading and writing, and merging RELION runs
 class TestStar:
@@ -84,3 +88,19 @@ class TestIo:
         issues: dict[str, TomogramError] = {}
         assert find_tomograms(config, issues=issues) == {}
         assert issues['Position_1_2'].reason == 'no raw tomogram'
+
+# TestCoords: voxel and centred Angstrom conversions
+class TestCoords:
+    # test_centre_is_origin: the middle voxel of the tomogram maps to zero
+    def test_centre_is_origin(self) -> None:
+        assert to_centred_angstrom((4.0, 3.0, 2.0), TOMO) == pytest.approx((0.0, 0.0, 0.0), abs=1e-6)
+
+    # test_known_value: voxel 0 is half the unbinned size away from the centre, and x, y, z keep their order
+    def test_known_value(self) -> None:
+        assert to_centred_angstrom((0.0, 0.0, 0.0), TOMO) == pytest.approx((-21.44, -16.08, -10.72))
+        assert to_centred_angstrom((8.0, 0.0, 0.0), TOMO)[0] == pytest.approx(21.44)
+
+    # test_round_trip: the conversion inverts
+    def test_round_trip(self) -> None:
+        xyz = (6.0, 2.5, 1.5)
+        assert from_centred_angstrom(to_centred_angstrom(xyz, TOMO), TOMO) == pytest.approx(xyz)
