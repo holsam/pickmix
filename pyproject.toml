@@ -1,0 +1,17 @@
+[project]
+name = "pickmix"
+version = "0.0.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Sam Holland", email = "hol_sam@icloud.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[project.scripts]
+pickmix = "pickmix:main"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
