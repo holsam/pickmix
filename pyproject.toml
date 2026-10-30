@@ -11,6 +11,7 @@ dependencies = [
     "mrcfile>=1.5.4",
     "numpy>=2.5.4",
     "pydantic>=2.14.2",
+    "pyside6>6.9",
     "tomli-w>=1.2.0",
 ]
 
@@ -24,4 +25,5 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "pytest-qt>=4.5.0",
 ]
