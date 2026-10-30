@@ -8,6 +8,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 # Import internal pickmix objects
+from pickmix.config import load_config
+from pickmix.utils.io import TomogramError, find_tomograms, load_volume, volume_path
 from pickmix.utils.star import merge_tomograms, read_star_loop, write_star_loop
 
 # TestStar: STAR reading and writing, and merging RELION runs
@@ -49,3 +51,36 @@ class TestStar:
         relion_project(tmp_path / 'p', [])
         with pytest.raises(ValueError, match='no tomograms'):
             merge_tomograms([('r1', tmp_path / 'p')], 'Tomograms/job006', tmp_path / 'out')
+
+# TestIo: tomogram discovery and volume access
+class TestIo:
+    # test_find_tomograms: pairing by stem, header values and star values
+    def test_find_tomograms(self, make_config: Callable[..., Path]) -> None:
+        t = find_tomograms(load_config(make_config()))['Position_1_2']
+        assert t.shape == (4, 6, 8)
+        assert t.pixel_size == pytest.approx(5.36, rel=1e-4)
+        assert t.size_xyz == (32, 24, 16)
+        assert t.denoised_path is not None
+        assert load_volume(t, source='denoised').shape == (4, 6, 8)
+
+    # test_volume_path: raw is used when asked for, denoised otherwise when present
+    def test_volume_path(self, make_config: Callable[..., Path]) -> None:
+        t = find_tomograms(load_config(make_config()))['Position_1_2']
+        assert volume_path(t, source='raw') == t.raw_path
+        assert volume_path(t, source='denoised') == t.denoised_path
+
+    # test_shape_mismatch: a header that disagrees with the star file is skipped and reported
+    def test_shape_mismatch(self, make_config: Callable[..., Path]) -> None:
+        issues: dict[str, TomogramError] = {}
+        tomos = find_tomograms(load_config(make_config(shape=(4, 6, 20))), issues=issues)
+        assert tomos == {}
+        assert issues['Position_1_2'].reason == 'shape mismatch'
+        assert issues['Position_1_2'].shape == (4, 6, 20)
+
+    # test_no_raw: a star row with no matching file is reported
+    def test_no_raw(self, make_config: Callable[..., Path]) -> None:
+        config = load_config(make_config())
+        next(config.raw_dir.glob('*.mrc')).unlink()
+        issues: dict[str, TomogramError] = {}
+        assert find_tomograms(config, issues=issues) == {}
+        assert issues['Position_1_2'].reason == 'no raw tomogram'
