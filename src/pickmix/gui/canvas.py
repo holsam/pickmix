@@ -7,7 +7,7 @@ import math, numpy as np
 from dataclasses import dataclass
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
-from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 # _HIT_PX: screen distance from a marker centre that counts as clicking it
 _HIT_PX: float = 6.0
@@ -40,6 +40,8 @@ class Marker:
     colour: str
     flagged: bool = False
     fit: FitView | None = None
+    # membrane normal projected on the slice, as a unit-length-or-shorter (x, y) vector
+    normal: tuple[float, float] | None = None
 
 # SliceCanvas: one slice plus markers; emits requests, never edits picks itself
 class SliceCanvas(QGraphicsView):
@@ -65,8 +67,10 @@ class SliceCanvas(QGraphicsView):
         self._markers: dict[int, Marker] = {}
         self._items: dict[int, QGraphicsEllipseItem] = {}
         self._extras: dict[int, tuple[QGraphicsEllipseItem | None, QGraphicsRectItem | None]] = {}
+        self._arrows: dict[int, QGraphicsLineItem] = {}
         self._rings = True
         self._boxes = True
+        self._normals = True
         self.selected_id: int | None = None
         self._drag: tuple[int, QPointF] | None = None
         self._drag_moved = False
@@ -99,9 +103,14 @@ class SliceCanvas(QGraphicsView):
         ring, box = self._extras.get(marker_id, (None, None))
         return (ring is not None and ring.isVisible(), box is not None and box.isVisible())
 
-    # set_overlay: show or hide the fit rings and boxes
-    def set_overlay(self, *, rings: bool, boxes: bool) -> None:
-        self._rings, self._boxes = rings, boxes
+    # normal_visible: whether a marker's normal arrow is showing
+    def normal_visible(self, marker_id: int) -> bool:
+        arrow = self._arrows.get(marker_id)
+        return arrow is not None and arrow.isVisible()
+
+    # set_overlay: show or hide the fit rings, boxes and normals
+    def set_overlay(self, *, rings: bool, boxes: bool, normals: bool = True) -> None:
+        self._rings, self._boxes, self._normals = rings, boxes, normals
         self._restyle()
 
     # set_image: show a slice windowed between lo and hi
@@ -134,6 +143,7 @@ class SliceCanvas(QGraphicsView):
         self._markers = {m.id: m for m in markers}
         self._items = {}
         self._extras = {}
+        self._arrows = {}
         for m in markers:
             ring = QGraphicsEllipseItem(-m.radius_px, -m.radius_px, 2 * m.radius_px, 2 * m.radius_px)
             ring.setPos(m.x + 0.5, m.y + 0.5)
@@ -142,6 +152,11 @@ class SliceCanvas(QGraphicsView):
             dot.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIgnoresTransformations)
             dot.setBrush(QColor(m.colour))
             dot.setPen(QPen(Qt.PenStyle.NoPen))
+            if m.normal is not None:
+                reach = max(4 * m.radius_px, 16.0)
+                arrow = QGraphicsLineItem(0, 0, m.normal[0] * reach, m.normal[1] * reach, ring)
+                arrow.setPen(self._fit_pen(m.colour, Qt.PenStyle.SolidLine, 2))
+                self._arrows[m.id] = arrow
             self._scene.addItem(ring)
             self._items[m.id] = ring
             if m.fit is not None:
@@ -254,6 +269,8 @@ class SliceCanvas(QGraphicsView):
             if m.flagged:
                 pen.setStyle(Qt.PenStyle.DashLine)
             item.setPen(pen)
+        for arrow in self._arrows.values():
+            arrow.setVisible(self._normals)
         for marker_id, (ring, box) in self._extras.items():
             fit = self._markers[marker_id].fit
             assert fit is not None
@@ -280,10 +297,11 @@ class SliceCanvas(QGraphicsView):
             self._scene.addItem(box)
         return ring, box
 
-    # _fit_pen: thin cosmetic pen for fit outlines
-    def _fit_pen(self, colour: str, style: Qt.PenStyle) -> QPen:
+    # _fit_pen: cosmetic pen for fit outlines and arrows
+    def _fit_pen(self, colour: str, style: Qt.PenStyle, width: int = 1) -> QPen:
         pen = QPen(QColor(colour))
         pen.setCosmetic(True)
+        pen.setWidth(width)
         pen.setStyle(style)
         return pen
 

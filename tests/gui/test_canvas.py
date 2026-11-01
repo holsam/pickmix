@@ -99,7 +99,7 @@ class TestCanvas:
         assert canvas.selected_id == 1
         canvas.select(99)
         assert canvas.selected_id is None
-    
+
     # test_fit_overlay: the ring shows within the fit's slab, the box within half its width of the fit's slice, and both can be switched off
     def test_fit_overlay(self, qtbot: QtBot) -> None:
         canvas = _canvas(qtbot)
@@ -114,3 +114,11 @@ class TestCanvas:
         canvas.set_overlay(rings=False, boxes=True)
         assert canvas.overlay_visible(1) == (False, True)
         assert canvas.overlay_visible(99) == (False, False)
+
+    # test_normal_arrow: a marker with a normal gets an arrow that the overlay switch hides
+    def test_normal_arrow(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_markers([Marker(1, 20, 15, 0, 4.0, 'lime', normal=(1.0, 0.0)), Marker(2, 10, 10, 0, 4.0, 'lime')])
+        assert canvas.normal_visible(1) and not canvas.normal_visible(2)
+        canvas.set_overlay(rings=True, boxes=True, normals=False)
+        assert not canvas.normal_visible(1)

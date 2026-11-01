@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 # Import internal pickmix objects
 from pickmix.estimates import EstimateService
 from pickmix.gui.canvas import FitView, Marker, SliceCanvas
+from pickmix.geometry import Parent, match_parents
 from pickmix.gui.workers import post
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
@@ -32,6 +33,7 @@ class PickTab(QWidget):
         self.loader: Loader | None = None
         self.service: EstimateService | None = None
         self._want_select: int | None = None
+        self._matched: dict[str, dict[int, Parent]] = {}
         self.opened: Opened | None = None
         self.active: str | None = None
         self.hidden: set[str] = set()
@@ -54,7 +56,8 @@ class PickTab(QWidget):
             slider.setRange(0, _STEPS)
         self.rings_box = QCheckBox('Rings')
         self.boxes_box = QCheckBox('Boxes')
-        for box in (self.rings_box, self.boxes_box):
+        self.normals_box = QCheckBox('Normals')
+        for box in (self.rings_box, self.boxes_box, self.normals_box):
             box.setChecked(True)
             box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.invert_box = QCheckBox('Invert')
@@ -79,6 +82,7 @@ class PickTab(QWidget):
         contrast_row.addWidget(self.hi_slider, 1)
         contrast_row.addWidget(self.rings_box)
         contrast_row.addWidget(self.boxes_box)
+        contrast_row.addWidget(self.normals_box)
         contrast_row.addWidget(self.invert_box)
         contrast_row.addWidget(self.auto_button)
         contrast_row.addWidget(self.fit_button)
@@ -101,6 +105,7 @@ class PickTab(QWidget):
         self.invert_box.toggled.connect(self._on_window)
         self.rings_box.toggled.connect(self._on_overlay)
         self.boxes_box.toggled.connect(self._on_overlay)
+        self.normals_box.toggled.connect(self._on_overlay)
         self.auto_button.clicked.connect(self._auto)
         self.fit_button.clicked.connect(self.canvas.fit)
         self.delete_button.clicked.connect(self.delete_selected)
@@ -228,6 +233,7 @@ class PickTab(QWidget):
         self.z_slider.blockSignals(False)
         self.status.setText('')
         self._first_slice = True
+        self._matched = self._match()
         self.canvas.set_markers(self._markers())
         self._on_overlay()
         self._show_z(depth // 2)
@@ -280,7 +286,7 @@ class PickTab(QWidget):
 
     # _on_overlay: fit rings or boxes switched
     def _on_overlay(self) -> None:
-        self.canvas.set_overlay(rings=self.rings_box.isChecked(), boxes=self.boxes_box.isChecked())
+        self.canvas.set_overlay(rings=self.rings_box.isChecked(), boxes=self.boxes_box.isChecked(), normals=self.normals_box.isChecked())
 
     # _on_window: contrast or invert changed
     def _on_window(self) -> None:
@@ -314,10 +320,21 @@ class PickTab(QWidget):
     def _on_picks(self) -> None:
         if self.session is None:
             return
+        self._fill_table()
         if self.opened is not None:
             self.canvas.set_markers(self._markers())
             self.status.setText(f'Estimating {self.service.pending}...' if self.service and self.service.pending else '')
-        self._fill_table()
+
+    # _match: parent geometry for the picks of the current tomogram, per kind that has a parent
+    def _match(self) -> dict[str, dict[int, Parent]]:
+        assert self.session is not None
+        if self.service is None:
+            return {}
+        config, project = self.session.project.config, self.session.project
+        return {
+            name: match_parents(name, config, self.session.store, self.service.store, project.tomos, tomogram=self.session.current)
+            for name, kind in config.kinds.items() if kind.parent is not None
+        }
 
     # _markers: markers for the visible kinds of the current tomogram
     def _markers(self) -> list[Marker]:
@@ -334,19 +351,26 @@ class PickTab(QWidget):
                     fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' else None,
                     fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi,
                 )
-                out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag), view))
+                parent = self._matched.get(kind_name, {}).get(p.id)
+                unmatched = kind.parent is not None and fit is not None and parent is None
+                normal = None if parent is None else (parent.normal[0], parent.normal[1])
+                out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag) or unmatched, view, normal))
         return out
 
     # _fill_table: the current tomogram's picks of known kinds, with the selected one highlighted
     def _fill_table(self) -> None:
         assert self.session is not None
         name = self.session.current
-        picks = [p for k in self.session.project.config.kinds for p in self.session.store.picks(name, k)]
+        kinds = self.session.project.config.kinds
+        picks = [p for k in kinds for p in self.session.store.picks(name, k)]
+        self._matched = self._match()
         self._row_ids = [p.id for p in picks]
         self.table.setRowCount(len(picks))
         for r, p in enumerate(picks):
             fit = self.service.store.get(p) if self.service else None
             snr, flag = ('', '') if fit is None else (f'{fit.snr:.2f}', fit.flag)
+            if fit is not None and kinds[p.kind].parent is not None and p.id not in self._matched.get(p.kind, {}):
+                flag = ','.join(filter(None, [flag, 'noparent']))
             for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag)):
                 self.table.setItem(r, c, QTableWidgetItem(text))
         self._select(self.canvas.selected_id)

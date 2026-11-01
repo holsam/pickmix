@@ -42,6 +42,23 @@ def setup(qtbot: QtBot, make_config: Callable[..., Path]) -> Iterator[Callable[[
     for close in closers:
         close()
 
+# parent_setup: a review tab over a session with a cage kind and a green kind whose parent is the cage
+@pytest.fixture
+def parent_setup(qtbot: QtBot, make_config: Callable[..., Path]) -> Iterator[tuple[ReviewTab, Session, EstimateService]]:
+    project = open_project(make_config())
+    project.update(kinds={
+        'cage': Kind(marker_a=600, box_a=700),
+        'green': Kind(marker_a=40, box_a=200, parent='cage', tilt_prior_deg=0.0),
+    })
+    session, loader = Session(project), Loader(project)
+    service = EstimateService(session, loader)
+    tab = ReviewTab()
+    qtbot.addWidget(tab)
+    tab.set_session(session, loader, service)
+    yield tab, session, service
+    service.shutdown()
+    loader.shutdown()
+
 # TestReviewTab: Review tab
 class TestReviewTab:
     # test_table_and_filters: rows follow the filters
@@ -107,3 +124,19 @@ class TestReviewTab:
         with qtbot.waitSignal(tab.open_pick) as blocker:
             tab._double_clicked(0, 0)
         assert blocker.args == [NAME, pick.id]
+
+    # test_unmatched_flagged_and_skipped: a pick off its parent's surface is flagged noparent, reported, and left out of the star file
+    def test_unmatched_flagged_and_skipped(self, qtbot: QtBot, parent_setup: tuple[ReviewTab, Session, EstimateService]) -> None:
+        tab, session, service = parent_setup
+        session.store.add(NAME, 'cage', 10.0, 10.0, 10.0)
+        session.store.add(NAME, 'green', 10.0 + 56.0, 10.0, 10.0)
+        session.store.add(NAME, 'green', 10.0 + 20.0, 10.0, 10.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
+        tab.refresh()
+        flags = {(tab.table.item(r, 1).text(), tab.table.item(r, 6).text()) for r in range(tab.table.rowCount())}
+        assert ('green', 'noparent') in flags
+        lines = tab.export_all()
+        assert any('green: 1 picks have no cage within 100 A' in l for l in lines)
+        [row] = read_star_loop(session.project.config.out_dir / 'relion' / 'green' / 'particles.star')
+        assert (row['rlnTomoSubtomogramTilt'], row['rlnAngleTiltPrior']) == ('90.0000', '0.0000')
+        assert tab.delete_flagged() == 1

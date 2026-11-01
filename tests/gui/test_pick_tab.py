@@ -27,7 +27,10 @@ def setup(qtbot: QtBot, make_config: Callable[..., Path]) -> Iterator[Callable[.
     # build: a tab on the first tomogram, with two kinds
     def build(names: tuple[str, ...] = ('Position_1_2',)) -> tuple[PickTab, Session]:
         project = open_project(make_config(names=names))
-        project.update(kinds={'cage': Kind(marker_a=600, box_a=700), 'yellow': Kind(marker_a=100, box_a=100)})
+        project.update(kinds={
+            'cage': Kind(marker_a=600, box_a=700), 'yellow': Kind(marker_a=100, box_a=100),
+            'green': Kind(marker_a=40, box_a=200, parent='cage'),
+        })
         session, loader = Session(project), Loader(project)
         service = EstimateService(session, loader)
         closers.extend([service.shutdown, loader.shutdown])
@@ -135,3 +138,13 @@ class TestPickTab:
         assert session.current == 'Other_9'
         qtbot.waitUntil(lambda: tab.canvas.selected_id == pick.id, timeout=5000)
         assert tab.z == 1
+
+    # test_normals_and_noparent: a pick on its parent's surface gets a normal, one off the surface is flagged noparent
+    def test_normals_and_noparent(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.store.add('Position_1_2', 'cage', 3.0, 2.0, 2.0)
+        near = session.store.add('Position_1_2', 'green', 3.0 + 56.0, 2.0, 2.0)
+        session.store.add('Position_1_2', 'green', 3.0 + 20.0, 2.0, 2.0)
+        qtbot.waitUntil(lambda: tab.canvas.normal_visible(near.id), timeout=5000)
+        qtbot.waitUntil(lambda: 'noparent' in {tab.table.item(r, 5).text() for r in range(tab.table.rowCount())}, timeout=5000)
+        assert [tab.table.item(r, 5).text() for r in range(3)] == ['', '', 'noparent']

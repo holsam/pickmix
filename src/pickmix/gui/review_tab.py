@@ -8,8 +8,8 @@ from collections.abc import Callable
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
+    QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
@@ -17,6 +17,7 @@ from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
 from pickmix.export import Item, export_kind, recommend_box
 from pickmix.extract import extract_kind
+from pickmix.geometry import Parent, match_parents
 from pickmix.gui.workers import post, run_in_background
 from pickmix.loader import Loader
 from pickmix.model import Pick, Session
@@ -208,7 +209,7 @@ class ReviewTab(QWidget):
                 lines.append(f'{name}: nothing to export')
                 continue
             try:
-                s = export_kind(name, kind, items, self.session.project.tomos, config.out_dir, min_snr=settings[name][0], drop_flagged=settings[name][1])
+                s = export_kind(name, kind, items, self.session.project.tomos, config.out_dir, min_snr=settings[name][0], drop_flagged=settings[name][1], parents=self._matched(name))
             except ValueError as e:
                 lines.append(str(e))
                 continue
@@ -244,12 +245,24 @@ class ReviewTab(QWidget):
     # _items: picks of a kind that have a current fit
     def _items(self, kind: str) -> list[Item]:
         assert self.session is not None and self.service is not None
+        matched = self._matched(kind)
         out = []
         for pick in self.session.store.all(kind):
             fit = self.service.store.get(pick)
             if fit is not None:
-                out.append((pick, fit))
+                out.append((pick, self._flagged(kind, pick, fit, matched)))
         return out
+
+    # _matched: parent geometry for every pick of a kind, empty for a kind with no parent
+    def _matched(self, kind: str) -> dict[int, Parent]:
+        assert self.session is not None and self.service is not None
+        return match_parents(kind, self.session.project.config, self.session.store, self.service.store, self.session.project.tomos)
+
+    # _flagged: the fit with noparent added to its flags when the pick's kind has a parent and the pick found none
+    def _flagged(self, kind: str, pick: Pick, fit: Fit, matched: dict[int, Parent]) -> Fit:
+        if self.session.project.config.kinds[kind].parent is None or pick.id in matched:
+            return fit
+        return fit.model_copy(update={'flag': ','.join(filter(None, [fit.flag, 'noparent']))})
 
     # _settings: minimum SNR and drop-flagged choice per kind from the export table; read on the GUI thread
     def _settings(self) -> dict[str, tuple[float, bool]]:
@@ -264,10 +277,14 @@ class ReviewTab(QWidget):
     def _preflight(self) -> list[str]:
         assert self.session is not None
         lines = []
-        for name in self.session.project.config.kinds:
-            missing = self.session.store.total(name) - len(self._items(name))
+        for name, kind in self.session.project.config.kinds.items():
+            items = self._items(name)
+            missing = self.session.store.total(name) - len(items)
             if missing:
                 lines.append(f'{name}: {missing} picks have no current estimate and are skipped (wait for estimating, or Re-estimate all)')
+            orphans = sum('noparent' in f.flag for _, f in items)
+            if orphans:
+                lines.append(f'{name}: {orphans} picks have no {kind.parent} within {kind.parent_tolerance_a:g} A and are skipped')
         return lines
 
     # _filtered: picks of known kinds passing the filters, in tomogram then kind order, with their current fit
@@ -278,12 +295,15 @@ class ReviewTab(QWidget):
         min_snr = self.snr_spin.value()
         order = {n: i for i, n in enumerate(self.session.names)}
         kinds = {k: i for i, k in enumerate(self.session.project.config.kinds)}
+        matched = {k: self._matched(k) for k in kinds}
         out = []
         for pick in self.session.store.all():
-            fit = self.service.store.get(pick)
-            flagged = fit is not None and bool(fit.flag)
             if pick.kind not in kinds or (kind != '(all)' and pick.kind != kind) or (tomo != '(all)' and pick.tomogram != tomo):
                 continue
+            fit = self.service.store.get(pick)
+            if fit is not None:
+                fit = self._flagged(pick.kind, pick, fit, matched[pick.kind])
+            flagged = fit is not None and bool(fit.flag)
             if (self.flagged_box.isChecked() and not flagged) or (min_snr > _ANY_SNR and (fit is None or fit.snr < min_snr)):
                 continue
             out.append((pick, fit))
