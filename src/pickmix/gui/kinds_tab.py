@@ -7,12 +7,13 @@ from pydantic import ValidationError
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QComboBox, QGroupBox, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QComboBox, QHBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimate.registry import ESTIMATORS
+from pickmix.gui.average_pane import AveragePane
 from pickmix.project import Project
 
 # _COLUMNS: kinds table headings; the first is the kind name, the rest are Kind fields in order
@@ -48,15 +49,13 @@ class KindsTab(QWidget):
             button.clicked.connect(slot)
             buttons.addWidget(button)
         buttons.addStretch()
-        average = QGroupBox('Average')
-        QVBoxLayout(average).addWidget(QLabel('Mean projection and montage per kind: available from phase 8.'))
-        average.setEnabled(False)
+        self.average = AveragePane()
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel('Row order sets the 1 to 9 hotkeys in the Pick tab.'))
         layout.addWidget(self.table)
         layout.addLayout(buttons)
         layout.addWidget(self.status)
-        layout.addWidget(average)
+        layout.addWidget(self.average)
 
     # set_project: show the kinds of a project
     def set_project(self, project: Project) -> None:

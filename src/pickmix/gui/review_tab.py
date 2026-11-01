@@ -6,7 +6,6 @@ pickmix: Review tab, every pick with filters, a preview of the selected pick, an
 import numpy as np
 from collections.abc import Callable
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
     QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -18,6 +17,7 @@ from pickmix.estimates import EstimateService
 from pickmix.export import Item, export_kind, recommend_box
 from pickmix.extract import extract_kind
 from pickmix.geometry import Parent, match_parents
+from pickmix.gui.images import to_pixmap
 from pickmix.gui.workers import post, run_in_background
 from pickmix.loader import Loader
 from pickmix.model import Pick, Session
@@ -372,13 +372,5 @@ class ReviewTab(QWidget):
     def _show_preview(self, token: int, crops: tuple[np.ndarray, np.ndarray]) -> None:
         if token != self._token:
             return
-        self.xy_label.setPixmap(_pixmap(crops[0]))
-        self.xz_label.setPixmap(_pixmap(crops[1]))
-
-# _pixmap: a crop stretched between its 1st and 99th percentiles and scaled to fit the preview
-def _pixmap(arr: np.ndarray) -> QPixmap:
-    lo, hi = np.percentile(arr, (1, 99))
-    img = np.ascontiguousarray(np.clip((arr - lo) * (255.0 / max(hi - lo, 1e-6)), 0, 255).astype(np.uint8))
-    h, w = img.shape
-    pixmap = QPixmap.fromImage(QImage(img.data, w, h, w, QImage.Format.Format_Grayscale8))
-    return pixmap.scaled(_PREVIEW, _PREVIEW, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self.xy_label.setPixmap(to_pixmap(crops[0], _PREVIEW))
+        self.xz_label.setPixmap(to_pixmap(crops[1], _PREVIEW))
