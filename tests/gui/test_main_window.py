@@ -28,3 +28,26 @@ class TestMainWindow:
         qtbot.addWidget(window)
         window.project_tab.set_project(open_project(make_config()))
         assert window.kinds_tab.table.item(0, 0).text() == 'cage'
+
+    # test_step_only_on_pick_tab: Enter steps tomograms on the Pick tab and nowhere else
+    def test_step_only_on_pick_tab(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config(names=('A_1', 'B_2', 'C_3'))))
+        window._step(1)
+        assert window.session.index == 0
+        window.tabs.setCurrentWidget(window.pick_tab)
+        window._step(1)
+        assert window.session.index == 1
+        window._step(-1)
+        window._step(-1)
+        assert window.session.index == 0
+        window.loader.shutdown()
+
+    # test_no_usable_tomograms: a project with nothing usable keeps the Pick tab locked
+    def test_no_usable_tomograms(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config(shape=(4, 6, 20))))
+        assert window.session is None
+        assert window.tabs.isTabEnabled(1) and not window.tabs.isTabEnabled(2)
