@@ -51,3 +51,15 @@ class TestMainWindow:
         window.project_tab.set_project(open_project(make_config(shape=(4, 6, 20))))
         assert window.session is None
         assert window.tabs.isTabEnabled(1) and not window.tabs.isTabEnabled(2)
+
+    # test_review_tab_wired: the Review tab is built for an opened project and opening a pick switches tabs
+    def test_review_tab_wired(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config()))
+        assert window.tabs.isTabEnabled(3) and window.service is not None
+        pick = window.session.store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
+        window._open_pick('Position_1_2', pick.id)
+        assert window.tabs.currentWidget() is window.pick_tab
+        window.service.shutdown()
+        window.loader.shutdown()
