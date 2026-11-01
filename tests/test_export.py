@@ -10,6 +10,7 @@ from pathlib import Path
 from pickmix.config import Kind
 from pickmix.estimate.registry import Fit
 from pickmix.export import Item, export_kind, recommend_box
+from pickmix.geometry import match_items
 from pickmix.model import Pick
 from pickmix.utils.io import Tomogram
 from pickmix.utils.star import read_star_loop
@@ -66,3 +67,30 @@ class TestExport:
         items = [_item(i, 1, 1, 1, 1.0, box=b) for i, b in enumerate((1000.0, 1100.0, 1200.0))]
         assert recommend_box(ring, items, percentile=100.0) == (1200.0, 114)
         assert recommend_box(ring, []) == (0.0, 0)
+
+    # test_parent_columns: a kind with a parent writes subtomogram angles, zero refined angles and the tilt prior, and leaves out unmatched picks
+    def test_parent_columns(self, tmp_path: Path) -> None:
+        cage = _item(1, 4, 3, 2, 1.0)
+        near, far = _item(2, 4 + 56, 3, 2, 0.0), _item(3, 4, 3, 22, 0.0)
+        kind = Kind(marker_a=40, box_a=200, parent='cage', tilt_prior_deg=0.0)
+        radius = 56 * 5.36
+        cage = (cage[0], cage[1].model_copy(update={'radius_a': radius}))
+        parents = match_items([near, far], [cage], kind.parent_tolerance_a, {'T': TOMO})
+        s = export_kind('green', kind, [near, far], {'T': TOMO}, tmp_path, parents=parents)
+        assert (s.written, s.unmatched) == (1, 1)
+        [row] = read_star_loop(tmp_path / 'relion' / 'green' / 'particles.star')
+        assert (row['rlnTomoSubtomogramRot'], row['rlnTomoSubtomogramTilt'], row['rlnTomoSubtomogramPsi']) == ('0.0000', '90.0000', '0.0000')
+        assert (row['rlnAngleRot'], row['rlnAngleTilt'], row['rlnAnglePsi']) == ('0.0000', '0.0000', '0.0000')
+        assert row['rlnAngleTiltPrior'] == '0.0000'
+
+    # test_no_geometry_columns_without_parent: a plain kind writes neither angles nor a prior
+    def test_no_geometry_columns_without_parent(self, tmp_path: Path) -> None:
+        export_kind('yellow', KIND, [_item(1, 4, 3, 2, 1.0)], {'T': TOMO}, tmp_path)
+        [row] = read_star_loop(tmp_path / 'relion' / 'yellow' / 'particles.star')
+        assert not any(c.startswith(('rlnTomoSubtomogram', 'rlnAngle')) for c in row)
+
+    # test_all_unmatched: a kind whose picks all lack a parent is an error
+    def test_all_unmatched(self, tmp_path: Path) -> None:
+        kind = Kind(marker_a=40, box_a=200, parent='cage')
+        with pytest.raises(ValueError, match='parent matching'):
+            export_kind('green', kind, [_item(1, 4, 3, 2, 0.0)], {'T': TOMO}, tmp_path, parents={})
