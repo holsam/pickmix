@@ -31,6 +31,18 @@ def crop_box(vol: np.ndarray, centre: tuple[int, int, int], box: int) -> np.ndar
     out[tuple(slice(s.start - (c - half), s.stop - (c - half)) for s, c in zip(src, centre, strict=True))] = block
     return out
 
+# pixel_size_of: the one pixel size the items share, ValueError if they differ
+def pixel_size_of(name: str, items: list[Item], tomos: dict[str, Tomogram]) -> float:
+    sizes = {tomos[p.tomogram].pixel_size for p, _ in items}
+    if len(sizes) > 1:
+        raise ValueError(f'kind {name!r}: one box in pixels needs one pixel size, got {sorted(sizes)!r}')
+    return sizes.pop()
+
+# box_pixels: the even box edge in reconstruction pixels for a kind, so the centre voxel sits at box // 2
+def box_pixels(kind: Kind, items: list[Item], pixel_size: float) -> int:
+    box_a, _ = recommend_box(kind, items)
+    return max(int(round(box_a / pixel_size / 2)) * 2, 2)
+
 # extract_kind: write out_dir/particles/<kind>/<tomogram>/<tomogram>_NNN.mrc at the reconstruction sampling; one even box for the whole kind
 def extract_kind(
     name: str, kind: Kind, items: list[Item], tomos: dict[str, Tomogram], config: Config,
@@ -38,13 +50,8 @@ def extract_kind(
 ) -> ExtractSummary:
     if not items:
         raise ValueError(f'kind {name!r}: nothing to extract')
-    sizes = {tomos[p.tomogram].pixel_size for p, _ in items}
-    if len(sizes) > 1:
-        raise ValueError(f'kind {name!r}: one box in pixels needs one pixel size, got {sorted(sizes)!r}')
-    px = sizes.pop()
-    box_a, _ = recommend_box(kind, items)
-    # even box, so the centre voxel sits at box // 2
-    box = max(int(round(box_a / px / 2)) * 2, 2)
+    px = pixel_size_of(name, items, tomos)
+    box = box_pixels(kind, items, px)
     folder = config.out_dir / 'particles' / name
     for tomogram in sorted({p.tomogram for p, _ in items}):
         vol = load_volume(tomos[tomogram], source=config.source)
