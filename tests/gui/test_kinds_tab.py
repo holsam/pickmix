@@ -29,13 +29,18 @@ class TestKindsTab:
         assert tab.table.rowCount() == 1
         assert tab.collect() == tab.project.config.kinds
 
-    # test_unregistered_estimator_kept: ring is not registered in this phase but must survive load and save
+    # test_unregistered_estimator_kept: an estimator name the registry does not know must survive load and save
     def test_unregistered_estimator_kept(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
-        tab, path = _tab(qtbot, make_config)
+        path = make_config()
+        project = open_project(path)
+        project.update(kinds={'cage': Kind(marker_a=600, estimator='future_fit')})
+        tab = KindsTab()
+        qtbot.addWidget(tab)
+        tab.set_project(project)
         combo = tab.table.cellWidget(0, 3)
-        assert isinstance(combo, QComboBox) and combo.currentText() == 'ring'
+        assert isinstance(combo, QComboBox) and combo.currentText() == 'future_fit'
         tab.save()
-        assert load_config(path).kinds['cage'].estimator == 'ring'
+        assert load_config(path).kinds['cage'].estimator == 'future_fit'
 
     # test_add_edit_save: a new kind edited in the table reaches config.toml in order
     def test_add_edit_save(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
