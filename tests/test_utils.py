@@ -3,13 +3,13 @@ pickmix: tests for the utils modules
 '''
 
 # Import external dependencies
-import pytest
+import numpy as np, pytest
 from collections.abc import Callable
 from pathlib import Path
 
 # Import internal pickmix objects
 from pickmix.config import load_config
-from pickmix.utils.coords import from_centred_angstrom, to_centred_angstrom
+from pickmix.utils.coords import euler_to_normal, from_centred_angstrom, normal_to_euler, to_centred_angstrom
 from pickmix.utils.io import Tomogram, TomogramError, find_tomograms, load_volume, volume_path
 from pickmix.utils.star import merge_tomograms, read_star_loop, write_star_loop
 
@@ -104,3 +104,21 @@ class TestCoords:
     def test_round_trip(self) -> None:
         xyz = (6.0, 2.5, 1.5)
         assert from_centred_angstrom(to_centred_angstrom(xyz, TOMO), TOMO) == pytest.approx(xyz)
+
+    # test_normal_to_euler_axes: the axes map to the expected angles
+    def test_normal_to_euler_axes(self) -> None:
+        assert normal_to_euler((0.0, 0.0, 1.0)) == pytest.approx((0.0, 0.0, 0.0))
+        assert normal_to_euler((1.0, 0.0, 0.0)) == pytest.approx((0.0, 90.0, 0.0))
+        assert normal_to_euler((0.0, 1.0, 0.0)) == pytest.approx((90.0, 90.0, 0.0))
+        assert normal_to_euler((0.0, 0.0, -1.0))[1] == pytest.approx(180.0)
+
+    # test_euler_rotation_gives_normal: Rz(rot) Ry(tilt) applied to z is the normal, and the inverse recovers the angles
+    def test_euler_rotation_gives_normal(self) -> None:
+        n = np.array([0.3, -0.5, 0.2])
+        n /= np.linalg.norm(n)
+        rot, tilt, _ = normal_to_euler(tuple(n))
+        r, t = np.radians(rot), np.radians(tilt)
+        rz = np.array([[np.cos(r), -np.sin(r), 0], [np.sin(r), np.cos(r), 0], [0, 0, 1]])
+        ry = np.array([[np.cos(t), 0, np.sin(t)], [0, 1, 0], [-np.sin(t), 0, np.cos(t)]])
+        assert rz @ ry @ np.array([0, 0, 1]) == pytest.approx(n)
+        assert euler_to_normal(rot, tilt) == pytest.approx(tuple(n))
