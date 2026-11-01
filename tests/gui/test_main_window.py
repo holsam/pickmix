@@ -21,3 +21,10 @@ class TestMainWindow:
         window.project_tab.set_project(open_project(make_config()))
         assert all(window.tabs.isTabEnabled(i) for i in range(4))
         assert window.project is not None
+
+    # test_kinds_tab_follows_project: the Kinds tab shows the opened project's kinds
+    def test_kinds_tab_follows_project(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config()))
+        assert window.kinds_tab.table.item(0, 0).text() == 'cage'
