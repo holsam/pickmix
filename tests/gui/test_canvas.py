@@ -10,7 +10,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 
 # Import internal pickmix objects
-from pickmix.gui.canvas import Marker, SliceCanvas
+from pickmix.gui.canvas import FitView, Marker, SliceCanvas
 
 # _canvas: a shown canvas with a 40 x 30 slice at unit zoom
 def _canvas(qtbot: QtBot) -> SliceCanvas:
@@ -99,3 +99,18 @@ class TestCanvas:
         assert canvas.selected_id == 1
         canvas.select(99)
         assert canvas.selected_id is None
+    
+    # test_fit_overlay: the ring shows within the fit's slab, the box within half its width of the fit's slice, and both can be switched off
+    def test_fit_overlay(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        fit = FitView(cx=20, cy=15, cz=50, ring_px=8.0, box_px=12.0, z_lo=45, z_hi=55)
+        canvas.set_markers([Marker(1, 20, 15, 50, 3.0, 'yellow', fit=fit)])
+        canvas.set_z(50)
+        assert canvas.overlay_visible(1) == (True, True)
+        canvas.set_z(58)
+        assert canvas.overlay_visible(1) == (False, False)
+        canvas.set_z(53)
+        assert canvas.overlay_visible(1) == (True, True)
+        canvas.set_overlay(rings=False, boxes=True)
+        assert canvas.overlay_visible(1) == (False, True)
+        assert canvas.overlay_visible(99) == (False, False)

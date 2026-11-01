@@ -10,6 +10,7 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
+from pickmix.estimates import EstimateService
 from pickmix.gui.pick_tab import PickTab
 from pickmix.loader import Loader
 from pickmix.model import Session
@@ -18,26 +19,27 @@ from pickmix.project import open_project
 # THREE: tomograms for navigation tests
 THREE: tuple[str, ...] = ('Position_1_2', 'Position_1_3', 'Other_9')
 
-# Setup: a tab over a session and loader, shut down after the test
+# Setup: a tab over a session, loader and estimate service, shut down after the test
 @pytest.fixture
 def setup(qtbot: QtBot, make_config: Callable[..., Path]) -> Iterator[Callable[..., tuple[PickTab, Session]]]:
-    loaders: list[Loader] = []
+    closers: list[Callable[[], None]] = []
 
     # build: a tab on the first tomogram, with two kinds
     def build(names: tuple[str, ...] = ('Position_1_2',)) -> tuple[PickTab, Session]:
         project = open_project(make_config(names=names))
-        project.update(kinds={'cage': Kind(marker_a=600, estimator='ring'), 'yellow': Kind(marker_a=100, box_a=100)})
+        project.update(kinds={'cage': Kind(marker_a=600, box_a=700), 'yellow': Kind(marker_a=100, box_a=100)})
         session, loader = Session(project), Loader(project)
-        loaders.append(loader)
+        service = EstimateService(session, loader)
+        closers.extend([service.shutdown, loader.shutdown])
         tab = PickTab()
         qtbot.addWidget(tab)
-        tab.set_session(session, loader)
+        tab.set_session(session, loader, service)
         qtbot.waitUntil(lambda: tab.canvas.has_image, timeout=5000)
         return tab, session
 
     yield build
-    for loader in loaders:
-        loader.shutdown()
+    for close in closers:
+        close()
 
 # TestPickTab: Pick tab
 class TestPickTab:
@@ -116,3 +118,20 @@ class TestPickTab:
         session.step(1)
         tab._open_done('Position_1_2', future)
         assert tab.opened is None or tab.opened.name == 'Position_1_3'
+
+    # test_estimate_overlay: a fitted pick gets its box drawn and its SNR and flag listed
+    def test_estimate_overlay(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        pick = session.store.add('Position_1_2', 'yellow', 3.0, 2.0, 2.0)
+        qtbot.waitUntil(lambda: tab.canvas.overlay_visible(pick.id)[1], timeout=5000)
+        qtbot.waitUntil(lambda: tab.table.item(0, 4) is not None and tab.table.item(0, 4).text() == '0.00', timeout=5000)
+        assert tab.table.item(0, 5).text() == ''
+
+    # test_show_pick: a pick in another tomogram opens that tomogram and selects the pick
+    def test_show_pick(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup(THREE)
+        pick = session.store.add('Other_9', 'cage', 1.0, 1.0, 1.0)
+        tab.show_pick(pick.id)
+        assert session.current == 'Other_9'
+        qtbot.waitUntil(lambda: tab.canvas.selected_id == pick.id, timeout=5000)
+        assert tab.z == 1

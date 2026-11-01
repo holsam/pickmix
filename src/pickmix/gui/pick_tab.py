@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (
 )
 
 # Import internal pickmix objects
-from pickmix.gui.canvas import Marker, SliceCanvas
+from pickmix.estimates import EstimateService
+from pickmix.gui.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.workers import post
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
@@ -29,6 +30,8 @@ class PickTab(QWidget):
         super().__init__()
         self.session: Session | None = None
         self.loader: Loader | None = None
+        self.service: EstimateService | None = None
+        self._want_select: int | None = None
         self.opened: Opened | None = None
         self.active: str | None = None
         self.hidden: set[str] = set()
@@ -49,14 +52,19 @@ class PickTab(QWidget):
         self.hi_slider = QSlider(Qt.Orientation.Horizontal)
         for slider in (self.lo_slider, self.hi_slider):
             slider.setRange(0, _STEPS)
+        self.rings_box = QCheckBox('Rings')
+        self.boxes_box = QCheckBox('Boxes')
+        for box in (self.rings_box, self.boxes_box):
+            box.setChecked(True)
+            box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.invert_box = QCheckBox('Invert')
         self.auto_button = QPushButton('Auto')
         self.fit_button = QPushButton('Fit')
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(['Kind', 'x', 'y', 'z'])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(['Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setMaximumWidth(280)
+        self.table.setMaximumWidth(380)
         self.delete_button = QPushButton('Delete selected')
         for button in (self.auto_button, self.fit_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -69,6 +77,8 @@ class PickTab(QWidget):
         contrast_row.addWidget(QLabel('Contrast'))
         contrast_row.addWidget(self.lo_slider, 1)
         contrast_row.addWidget(self.hi_slider, 1)
+        contrast_row.addWidget(self.rings_box)
+        contrast_row.addWidget(self.boxes_box)
         contrast_row.addWidget(self.invert_box)
         contrast_row.addWidget(self.auto_button)
         contrast_row.addWidget(self.fit_button)
@@ -89,6 +99,8 @@ class PickTab(QWidget):
         self.lo_slider.valueChanged.connect(self._on_window)
         self.hi_slider.valueChanged.connect(self._on_window)
         self.invert_box.toggled.connect(self._on_window)
+        self.rings_box.toggled.connect(self._on_overlay)
+        self.boxes_box.toggled.connect(self._on_overlay)
         self.auto_button.clicked.connect(self._auto)
         self.fit_button.clicked.connect(self.canvas.fit)
         self.delete_button.clicked.connect(self.delete_selected)
@@ -105,9 +117,11 @@ class PickTab(QWidget):
             QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WidgetWithChildrenShortcut).activated.connect(self.delete_selected)
 
     # set_session: show a session and follow its picks and navigation
-    def set_session(self, session: Session, loader: Loader) -> None:
-        self.session, self.loader = session, loader
+    def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
+        self.session, self.loader, self.service = session, loader, service
         session.store.listeners.append(self._on_picks)
+        # estimates arrive on the service's thread
+        service.store.listeners.append(lambda: post(self._on_picks))
         session.goto_listeners.append(self._on_goto)
         self.refresh_kinds()
         self._on_goto()
@@ -142,6 +156,17 @@ class PickTab(QWidget):
         self.kind_row.addStretch()
         self._set_active(self.active if self.active in kinds else next(iter(kinds)))
         self._on_picks()
+
+    # show_pick: go to a pick, in whichever tomogram it is, and select it
+    def show_pick(self, pick_id: int) -> None:
+        assert self.session is not None
+        pick = self.session.store.get(pick_id)
+        if pick.tomogram == self.session.current and self.opened is not None:
+            self._clicked(pick_id)
+            return
+        self._want_select = pick_id
+        if pick.tomogram != self.session.current:
+            self.session.go(self.session.names.index(pick.tomogram))
 
     # delete_selected: remove the selected pick
     def delete_selected(self) -> None:
@@ -204,7 +229,11 @@ class PickTab(QWidget):
         self.status.setText('')
         self._first_slice = True
         self.canvas.set_markers(self._markers())
+        self._on_overlay()
         self._show_z(depth // 2)
+        if self._want_select is not None:
+            wanted, self._want_select = self._want_select, None
+            self._clicked(wanted)
         if self.session.index + 1 < len(self.session.names):
             self.loader.prefetch(self.session.names[self.session.index + 1])
 
@@ -249,6 +278,10 @@ class PickTab(QWidget):
         lo, hi = (self._slider_value(s.value()) for s in (self.lo_slider, self.hi_slider))
         return (lo, hi) if hi > lo else (lo, lo + 1e-6)
 
+    # _on_overlay: fit rings or boxes switched
+    def _on_overlay(self) -> None:
+        self.canvas.set_overlay(rings=self.rings_box.isChecked(), boxes=self.boxes_box.isChecked())
+
     # _on_window: contrast or invert changed
     def _on_window(self) -> None:
         lo, hi = self._window()
@@ -283,6 +316,7 @@ class PickTab(QWidget):
             return
         if self.opened is not None:
             self.canvas.set_markers(self._markers())
+            self.status.setText(f'Estimating {self.service.pending}...' if self.service and self.service.pending else '')
         self._fill_table()
 
     # _markers: markers for the visible kinds of the current tomogram
@@ -290,11 +324,18 @@ class PickTab(QWidget):
         assert self.session is not None
         name = self.session.current
         px = self.session.project.tomos[name].pixel_size
-        return [
-            Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour)
-            for kind_name, kind in self.session.project.config.kinds.items() if kind_name not in self.hidden
-            for p in self.session.store.picks(name, kind_name)
-        ]
+        out = []
+        for kind_name, kind in self.session.project.config.kinds.items():
+            if kind_name in self.hidden:
+                continue
+            for p in self.session.store.picks(name, kind_name):
+                fit = self.service.store.get(p) if self.service else None
+                view = None if fit is None else FitView(
+                    fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' else None,
+                    fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi,
+                )
+                out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag), view))
+        return out
 
     # _fill_table: the current tomogram's picks of known kinds, with the selected one highlighted
     def _fill_table(self) -> None:
@@ -304,7 +345,9 @@ class PickTab(QWidget):
         self._row_ids = [p.id for p in picks]
         self.table.setRowCount(len(picks))
         for r, p in enumerate(picks):
-            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}')):
+            fit = self.service.store.get(p) if self.service else None
+            snr, flag = ('', '') if fit is None else (f'{fit.snr:.2f}', fit.flag)
+            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag)):
                 self.table.setItem(r, c, QTableWidgetItem(text))
         self._select(self.canvas.selected_id)
 

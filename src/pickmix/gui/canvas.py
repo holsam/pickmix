@@ -7,7 +7,7 @@ import math, numpy as np
 from dataclasses import dataclass
 from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
-from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 # _HIT_PX: screen distance from a marker centre that counts as clicking it
 _HIT_PX: float = 6.0
@@ -18,6 +18,17 @@ _FAINT: float = 0.3
 # _DRAG_PX: screen distance before a press on a marker becomes a drag
 _DRAG_PX: float = 3.0
 
+# FitView: a fit as the canvas draws it; centre in voxels, ring and box sizes in pixels, slab as inclusive slices
+@dataclass(frozen=True)
+class FitView:
+    cx: float
+    cy: float
+    cz: float
+    ring_px: float | None
+    box_px: float | None
+    z_lo: int
+    z_hi: int
+
 # Marker: a pick as the canvas draws it; x, y in voxels, z the slice it was picked on
 @dataclass(frozen=True)
 class Marker:
@@ -27,6 +38,8 @@ class Marker:
     z: float
     radius_px: float
     colour: str
+    flagged: bool = False
+    fit: FitView | None = None
 
 # SliceCanvas: one slice plus markers; emits requests, never edits picks itself
 class SliceCanvas(QGraphicsView):
@@ -51,6 +64,9 @@ class SliceCanvas(QGraphicsView):
         self._z = 0.0
         self._markers: dict[int, Marker] = {}
         self._items: dict[int, QGraphicsEllipseItem] = {}
+        self._extras: dict[int, tuple[QGraphicsEllipseItem | None, QGraphicsRectItem | None]] = {}
+        self._rings = True
+        self._boxes = True
         self.selected_id: int | None = None
         self._drag: tuple[int, QPointF] | None = None
         self._drag_moved = False
@@ -78,6 +94,16 @@ class SliceCanvas(QGraphicsView):
     def opacity(self, marker_id: int) -> float:
         return self._items[marker_id].opacity()
 
+    # overlay_visible: whether the fit ring and box of a marker are showing on this slice
+    def overlay_visible(self, marker_id: int) -> tuple[bool, bool]:
+        ring, box = self._extras.get(marker_id, (None, None))
+        return (ring is not None and ring.isVisible(), box is not None and box.isVisible())
+
+    # set_overlay: show or hide the fit rings and boxes
+    def set_overlay(self, *, rings: bool, boxes: bool) -> None:
+        self._rings, self._boxes = rings, boxes
+        self._restyle()
+
     # set_image: show a slice windowed between lo and hi
     def set_image(self, arr: np.ndarray, lo: float, hi: float, *, invert: bool = False) -> None:
         self._slice = arr
@@ -101,8 +127,13 @@ class SliceCanvas(QGraphicsView):
     def set_markers(self, markers: list[Marker]) -> None:
         for item in self._items.values():
             self._scene.removeItem(item)
+        for extra in self._extras.values():
+            for item in extra:
+                if item is not None:
+                    self._scene.removeItem(item)
         self._markers = {m.id: m for m in markers}
         self._items = {}
+        self._extras = {}
         for m in markers:
             ring = QGraphicsEllipseItem(-m.radius_px, -m.radius_px, 2 * m.radius_px, 2 * m.radius_px)
             ring.setPos(m.x + 0.5, m.y + 0.5)
@@ -113,6 +144,8 @@ class SliceCanvas(QGraphicsView):
             dot.setPen(QPen(Qt.PenStyle.NoPen))
             self._scene.addItem(ring)
             self._items[m.id] = ring
+            if m.fit is not None:
+                self._extras[m.id] = self._add_fit(m, m.fit)
         if self.selected_id not in self._markers:
             self.selected_id = None
         self._restyle()
@@ -135,7 +168,7 @@ class SliceCanvas(QGraphicsView):
     # mousePressEvent: pan, select or drag a marker, or request a new pick
     def mousePressEvent(self, event: QMouseEvent) -> None:
         pos = self.mapToScene(event.position().toPoint())
-        if event.button() == Qt.MouseButton.RightButton:
+        if event.button() == Qt.MouseButton.MiddleButton:
             self._pan = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
@@ -168,7 +201,7 @@ class SliceCanvas(QGraphicsView):
 
     # mouseReleaseEvent: finish a pan, or finish a marker press as a click or a move
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.RightButton and self._pan is not None:
+        if event.button() == Qt.MouseButton.MiddleButton and self._pan is not None:
             self._pan = None
             self.unsetCursor()
         elif event.button() == Qt.MouseButton.LeftButton and self._drag is not None:
@@ -214,10 +247,45 @@ class SliceCanvas(QGraphicsView):
         for marker_id, item in self._items.items():
             m = self._markers[marker_id]
             item.setOpacity(1.0 if abs(self._z - m.z) <= max(2.0, m.radius_px) else _FAINT)
-            pen = QPen(QColor('white') if marker_id == self.selected_id else QColor(m.colour))
+            colour = QColor('white') if marker_id == self.selected_id else QColor('red') if m.flagged else QColor(m.colour)
+            pen = QPen(colour)
             pen.setCosmetic(True)
             pen.setWidth(3 if marker_id == self.selected_id else 2)
+            if m.flagged:
+                pen.setStyle(Qt.PenStyle.DashLine)
             item.setPen(pen)
+        for marker_id, (ring, box) in self._extras.items():
+            fit = self._markers[marker_id].fit
+            assert fit is not None
+            if ring is not None:
+                ring.setVisible(self._rings and fit.z_lo <= self._z <= fit.z_hi)
+            if box is not None and fit.box_px is not None:
+                box.setVisible(self._boxes and abs(self._z - fit.cz) <= fit.box_px / 2)
+
+    # _add_fit: dashed ring and dotted box items for a fit, in the marker's colour
+    def _add_fit(self, m: Marker, fit: FitView) -> tuple[QGraphicsEllipseItem | None, QGraphicsRectItem | None]:
+        ring = box = None
+        if fit.ring_px:
+            ring = QGraphicsEllipseItem(-fit.ring_px, -fit.ring_px, 2 * fit.ring_px, 2 * fit.ring_px)
+            ring.setPen(self._fit_pen(m.colour, Qt.PenStyle.DashLine))
+            ring.setPos(fit.cx + 0.5, fit.cy + 0.5)
+            ring.setZValue(1)
+            self._scene.addItem(ring)
+        if fit.box_px:
+            half = fit.box_px / 2
+            box = QGraphicsRectItem(-half, -half, 2 * half, 2 * half)
+            box.setPen(self._fit_pen(m.colour, Qt.PenStyle.DotLine))
+            box.setPos(fit.cx + 0.5, fit.cy + 0.5)
+            box.setZValue(1)
+            self._scene.addItem(box)
+        return ring, box
+
+    # _fit_pen: thin cosmetic pen for fit outlines
+    def _fit_pen(self, colour: str, style: Qt.PenStyle) -> QPen:
+        pen = QPen(QColor(colour))
+        pen.setCosmetic(True)
+        pen.setStyle(style)
+        return pen
 
     # _inside: whether a scene position is on the image
     def _inside(self, pos: QPointF) -> bool:
