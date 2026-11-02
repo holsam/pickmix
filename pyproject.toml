@@ -1,13 +1,22 @@
 [project]
 name = "pickmix"
 version = "0.0.0"
-description = "Multi-kind particle picking GUI for cryo-ET sub-tomogram-averaging workflows."
+description = "Multi-kind particle picking GUI for cryo-ET sub-tomogram averaging workflows."
 readme = "README.md"
 authors = [
     { name = "Sam Holland", email = "hol_sam@icloud.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "imageio>=2.38.1",
+    "mrcfile>=1.5.4",
+    "numpy>=2.5.4",
+    "pydantic>=2.14.2",
+    "pyside6>6.9",
+    "scikit-image>=0.26.0",
+    "scipy>=1.18.1",
+    "tomli-w>=1.2.0",
+]
 
 [project.scripts]
 pickmix = "pickmix:main"
@@ -15,3 +24,9 @@ pickmix = "pickmix:main"
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-qt>=4.5.0",
+]
