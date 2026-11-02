@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 # Import internal pickmix objects
-from pickmix.config import Config, Kind, load_config, save_config
+from pickmix.config import Config, Kind, RingParams, load_config, save_config
 
 # _config: a config with absolute paths, so it survives a save and load unchanged, and the given kinds
 def _config(**kinds: Kind) -> Config:
@@ -66,3 +66,8 @@ class TestConfig:
     def test_bad_kind_name(self) -> None:
         with pytest.raises(ValidationError, match='letters'):
             _config(**{'bad name': Kind(marker_a=1, box_a=1)})
+
+    # test_ring_params_documented: every ring parameter has a form label and a tooltip
+    def test_ring_params_documented(self) -> None:
+        for name, field in RingParams.model_fields.items():
+            assert field.title and field.description, name

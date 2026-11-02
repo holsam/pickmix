@@ -27,26 +27,26 @@ class Kind(BaseModel):
     # pixel size of the RELION extraction in Angstrom per pixel
     extract_angpix: float = Field(default=10.68, gt=0)
 
-# RingParams: settings of the ring estimator, all lengths in Angstrom
+# RingParams: settings of the ring estimator, all lengths in Angstrom; title and description feed the settings form
 class RingParams(BaseModel):
     # cage radius sweep and ring width
-    radius_range_a: tuple[float, float] = (150.0, 500.0)
-    radius_step_a: float = 25.0
-    ring_sigma_a: float = 30.0
+    radius_range_a: tuple[float, float] = Field(default=(150.0, 500.0), title='Radius range (Å)', description='Smallest and largest cage radius tried.')
+    radius_step_a: float = Field(default=25.0, title='Radius step (Å)', description='Spacing of the radii tried across the range.')
+    ring_sigma_a: float = Field(default=30.0, title='Ring width σ (Å)', description='Width of the dark ring template.')
     # background flattening and light smoothing of each projection
-    highpass_sigma_a: float = 500.0
-    smooth_sigma_a: float = 8.0
+    highpass_sigma_a: float = Field(default=500.0, title='High-pass σ (Å)', description='Gaussian width removed from each projection to flatten the background.')
+    smooth_sigma_a: float = Field(default=8.0, title='Smoothing σ (Å)', description='Light Gaussian smoothing of each projection.')
     # ring half-width and the background annulus as multiples of the ring radius
-    ring_halfwidth_a: float = 40.0
-    bg_range: tuple[float, float] = (1.3, 1.8)
+    ring_halfwidth_a: float = Field(default=40.0, title='Ring half-width (Å)', description='Half-width of the ring used to score its contrast.')
+    bg_range: tuple[float, float] = Field(default=(1.3, 1.8), title='Background annulus (× radius)', description='Inner and outer edge of the background annulus, as multiples of the ring radius.')
     # z slab grown up to walk_max_half_a, stopping after walk_patience steps without a better SNR
-    walk_max_half_a: float = 400.0
-    walk_patience: int = 3
+    walk_max_half_a: float = Field(default=400.0, title='Max slab half-thickness (Å)', description='The z slab grows up to this half-thickness.')
+    walk_patience: int = Field(default=3, title='Walk patience (steps)', description='Growth stops after this many steps without a better SNR.')
     # how far the centre may move from the pick in xy, and the slab centre in z
-    locate_range_a: float = 200.0
-    z_shift_a: float = 100.0
+    locate_range_a: float = Field(default=200.0, title='Locate range (Å)', description='How far the ring centre may move from the pick in xy.')
+    z_shift_a: float = Field(default=100.0, title='Z shift (Å)', description='How far the slab centre may move from the pick in z.')
     # box edge as a multiple of the ring diameter when the kind takes its box from the estimator
-    box_margin: float = 1.25
+    box_margin: float = Field(default=1.25, title='Box margin (× diameter)', description='Box edge as a multiple of the ring diameter, for kinds that take their box from the estimator.')
 
 # _default_kinds: the single cage kind used when a config has no kinds table
 def _default_kinds() -> dict[str, Kind]:
