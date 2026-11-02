@@ -43,10 +43,13 @@ class MainWindow(QMainWindow):
         for i in range(1, self.tabs.count()):
             self.tabs.setTabEnabled(i, False)
         self.setCentralWidget(self.tabs)
-        dock = QDockWidget('Tomograms')
-        dock.setWidget(self.dock)
-        dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
+        self.dock_widget = QDockWidget('Tomograms')
+        self.dock_widget.setWidget(self.dock)
+        self.dock_widget.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.dock_widget.hide()
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_widget)
+        self.tabs.currentChanged.connect(self._sync_dock)
+        self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.config_saved.connect(self._on_settings)
         self.kinds_tab.config_saved.connect(self._on_kinds)
@@ -66,6 +69,10 @@ class MainWindow(QMainWindow):
         if isinstance(QApplication.focusWidget(), QLineEdit):
             return
         self.session.step(delta)
+
+    # _sync_dock: the tomogram dock is only for the Pick tab, and only with a session
+    def _sync_dock(self) -> None:
+        self.dock_widget.setVisible(self.session is not None and self.tabs.currentWidget() is self.pick_tab)
 
     # _on_project: build the session and loader for a project and unlock the tabs
     def _on_project(self, project: Project) -> None:
@@ -90,6 +97,7 @@ class MainWindow(QMainWindow):
             self.tabs.setTabEnabled(i, True)
         self.tabs.setTabEnabled(2, self.session is not None)
         self.tabs.setTabEnabled(3, self.session is not None)
+        self._sync_dock()
 
     # _on_settings: source or estimator settings changed, so start the session and loader afresh
     def _on_settings(self) -> None:

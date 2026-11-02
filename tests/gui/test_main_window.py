@@ -72,3 +72,17 @@ class TestMainWindow:
         assert window.kinds_tab.average.kind_box.count() == 1
         window.service.shutdown()
         window.loader.shutdown()
+
+    # test_dock_only_on_pick_tab: the tomogram dock follows the Pick tab
+    def test_dock_only_on_pick_tab(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window.dock_widget.isHidden()
+        window.project_tab.set_project(open_project(make_config()))
+        assert window.dock_widget.isHidden()
+        window.tabs.setCurrentWidget(window.pick_tab)
+        assert not window.dock_widget.isHidden()
+        window.tabs.setCurrentWidget(window.review_tab)
+        assert window.dock_widget.isHidden()
+        window.service.shutdown()
+        window.loader.shutdown()
