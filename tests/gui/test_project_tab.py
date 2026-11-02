@@ -54,3 +54,11 @@ class TestProjectTab:
         assert config.source == 'raw'
         assert config.ring.radius_step_a == 50.0
         assert config.ring.radius_range_a == (150.0, 500.0)
+
+    # test_form_labels: parameters show their title and explain themselves on hover
+    def test_form_labels(self, qtbot: QtBot) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        label = tab.ring_form.labels['radius_range_a']
+        assert label.text() == 'Radius range (Å)' and label.toolTip()
+        assert len(tab.ring_form._boxes['radius_range_a']) == 2

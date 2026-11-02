@@ -5,8 +5,8 @@ pickmix: 'Project' tab for creating/opening projects and setting tomogram source
 # Import external dependencies
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
     QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -22,22 +22,39 @@ from pickmix.utils.star import MergeResult
 # _COLUMNS: tomogram table headings
 _COLUMNS: list[str] = ['Name', 'Shape (zyx)', 'Pixel size (A)', 'Denoised', 'Status']
 
-# _ParamsForm: a form for a flat pydantic model of numbers and number pairs, built from its current values
+# _ParamsForm: a form for a flat pydantic model of numbers and number pairs, labelled from the field titles
 class _ParamsForm(QWidget):
-    # __init__: one row per field
+    # __init__: one row per field, "Title (units) (?): [a] - [b]"
     def __init__(self, params: BaseModel) -> None:
         super().__init__()
         self._cls = type(params)
         self._boxes: dict[str, list[QSpinBox | QDoubleSpinBox]] = {}
+        self.labels: dict[str, QLabel] = {}
         layout = QFormLayout(self)
         for name, value in params:
+            info = type(params).model_fields[name]
             values = value if isinstance(value, tuple) else (value,)
             boxes = [_spin(v) for v in values]
             self._boxes[name] = boxes
             row = QHBoxLayout()
-            for box in boxes:
+            for i, box in enumerate(boxes):
+                if i:
+                    row.addWidget(QLabel('-'))
                 row.addWidget(box)
-            layout.addRow(name, row)
+            row.addStretch()
+            # "Title (units) (?):" in the label column, then the values
+            label = QLabel(info.title or name)
+            label.setToolTip(info.description or '')
+            self.labels[name] = label
+            head = QWidget()
+            head_row = QHBoxLayout(head)
+            head_row.setContentsMargins(0, 0, 0, 0)
+            head_row.setSpacing(4)
+            head_row.addWidget(label)
+            head_row.addWidget(_help(info.description or ''))
+            head_row.addWidget(QLabel(':'))
+            head_row.addStretch()
+            layout.addRow(head, row)
 
     # set: show the values of a model
     def set(self, params: BaseModel) -> None:
@@ -216,3 +233,17 @@ def _spin(value: float) -> QSpinBox | QDoubleSpinBox:
 def _create_and_open(values: dict[str, object]) -> tuple[Project, MergeResult]:
     path, result = create_project(**values)
     return open_project(path), result
+
+# _HELP_ICON: question mark icon shown after parameter titles; text is used when the file is missing
+_HELP_ICON: Path = Path(__file__).parent / 'icons' / 'help.svg'
+
+# _help: the question mark icon, or (?) without it, explaining itself on hover
+def _help(text: str) -> QLabel:
+    label = QLabel()
+    if _HELP_ICON.exists():
+        label.setPixmap(QIcon(str(_HELP_ICON)).pixmap(16, 16))
+    else:
+        label.setText('(?)')
+    label.setToolTip(text)
+    label.setCursor(Qt.CursorShape.WhatsThisCursor)
+    return label
