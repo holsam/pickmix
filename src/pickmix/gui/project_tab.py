@@ -8,13 +8,15 @@ from pydantic import BaseModel, ValidationError
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QPushButton,
-    QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
+    QLabel, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
 from pickmix.config import RingParams
+from pickmix.gui.collapsible import Collapsible
 from pickmix.gui.new_project_dialog import NewProjectDialog
+from pickmix.gui.style import heading
 from pickmix.gui.workers import run_in_background
 from pickmix.project import Project, create_project, open_project
 from pickmix.utils.star import MergeResult
@@ -92,14 +94,22 @@ class ProjectTab(QWidget):
         self.source_box.addItems(['denoised', 'raw'])
         self.ring_form = _ParamsForm(RingParams())
         self.save_button = QPushButton('Save settings')
-        self.settings = QGroupBox('Settings')
-        form = QVBoxLayout(self.settings)
-        source = QFormLayout()
+        general = QGroupBox('General')
+        source = QFormLayout(general)
         source.addRow('Volume source', self.source_box)
-        form.addLayout(source)
-        form.addWidget(QLabel('Ring estimator'))
-        form.addWidget(self.ring_form)
+        estimators = QGroupBox('Estimators')
+        estimator_box = QVBoxLayout(estimators)
+        self.ring_section = Collapsible('Ring', self.ring_form)
+        estimator_box.addWidget(self.ring_section)
+        self.settings = QWidget()
+        self.settings.setMinimumWidth(self.ring_form.sizeHint().width() + 48)
+        form = QVBoxLayout(self.settings)
+        form.setContentsMargins(0, 0, 0, 0)
+        form.addWidget(heading('Settings'))
+        form.addWidget(general)
+        form.addWidget(estimators)
         form.addWidget(self.save_button)
+        form.addStretch()
         self.settings.setEnabled(False)
         top = QHBoxLayout()
         top.addWidget(self.open_button)

@@ -62,3 +62,19 @@ class TestProjectTab:
         label = tab.ring_form.labels['radius_range_a']
         assert label.text() == 'Radius range (Å)' and label.toolTip()
         assert len(tab.ring_form._boxes['radius_range_a']) == 2
+
+    # test_ring_section_collapsed: ring parameters are hidden until the section is opened
+    def test_ring_section_collapsed(self, qtbot: QtBot) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        assert tab.ring_form.isHidden()
+        tab.ring_section.toggle.setChecked(True)
+        assert not tab.ring_form.isHidden()
+
+    # test_settings_width_fixed: opening the ring section does not change settings pane width
+    def test_settings_width_fixed(self, qtbot: QtBot) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        closed = tab.settings.minimumSizeHint().width()
+        tab.ring_section.toggle.setChecked(True)
+        assert tab.settings.minimumSizeHint().width() == closed
