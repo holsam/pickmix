@@ -86,3 +86,12 @@ class TestMainWindow:
         assert window.dock_widget.isHidden()
         window.service.shutdown()
         window.loader.shutdown()
+
+    # test_close_project: closing re-locks the other tabs and drops the session
+    def test_close_project(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config()))
+        window.project_tab.close_button.click()
+        assert window.project is None and window.session is None
+        assert [window.tabs.isTabEnabled(i) for i in range(4)] == [True, False, False, False]

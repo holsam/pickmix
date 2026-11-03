@@ -78,3 +78,14 @@ class TestProjectTab:
         closed = tab.settings.minimumSizeHint().width()
         tab.ring_section.toggle.setChecked(True)
         assert tab.settings.minimumSizeHint().width() == closed
+
+    # test_start_page_and_close: start page shows until a project opens, and closing returns to it
+    def test_start_page_and_close(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        assert tab.stack.currentIndex() == 0
+        tab.set_project(open_project(make_config()))
+        assert tab.stack.currentIndex() == 1
+        with qtbot.waitSignal(tab.project_closed):
+            tab.close_button.click()
+        assert tab.stack.currentIndex() == 0 and tab.project is None

@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.config_saved.connect(self._on_settings)
+        self.project_tab.project_closed.connect(self._on_closed)
         self.kinds_tab.config_saved.connect(self._on_kinds)
         self.review_tab.open_pick.connect(self._open_pick)
         for keys, delta in (('Return', 1), ('Enter', 1), ('Shift+Return', -1), ('Shift+Enter', -1)):
@@ -78,10 +79,7 @@ class MainWindow(QMainWindow):
     def _on_project(self, project: Project) -> None:
         self.project = project
         self.setWindowTitle(f'pickmix: {project.path}')
-        if self.service is not None:
-            self.service.shutdown()
-        if self.loader is not None:
-            self.loader.shutdown()
+        self._shutdown()
         self.kinds_tab.set_project(project)
         if project.tomos:
             self.session, self.loader = Session(project), Loader(project)
@@ -97,6 +95,25 @@ class MainWindow(QMainWindow):
             self.tabs.setTabEnabled(i, True)
         self.tabs.setTabEnabled(2, self.session is not None)
         self.tabs.setTabEnabled(3, self.session is not None)
+        self._sync_dock()
+
+    # _shutdown: stop the estimate service and loader of the current project, if any
+    def _shutdown(self) -> None:
+        if self.service is not None:
+            self.service.shutdown()
+        if self.loader is not None:
+            self.loader.shutdown()
+        self.session = self.loader = self.service = None
+
+    # _on_closed: no project; lock everything but the Project tab
+    def _on_closed(self) -> None:
+        self._shutdown()
+        self.project = None
+        self.setWindowTitle('pickmix')
+        self.kinds_tab.average.set_session(None, None)
+        for i in range(1, self.tabs.count()):
+            self.tabs.setTabEnabled(i, False)
+        self.tabs.setCurrentWidget(self.project_tab)
         self._sync_dock()
 
     # _on_settings: source or estimator settings changed, so start the session and loader afresh

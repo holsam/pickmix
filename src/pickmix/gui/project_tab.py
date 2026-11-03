@@ -8,8 +8,8 @@ from pydantic import BaseModel, ValidationError
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+    QPushButton, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
@@ -74,16 +74,18 @@ class ProjectTab(QWidget):
     project_changed = Signal(object)
     # config_saved: settings of the open project were written to config.toml
     config_saved = Signal()
+    # project_closed: the open project was closed
+    project_closed = Signal()
 
     # __init__: build the layout
     def __init__(self) -> None:
         super().__init__()
         self.project: Project | None = None
-        self.path_label = QLabel('No project open')
-        self.open_button = QPushButton('Open config...')
+        self.path_label = QLabel()
+        self.open_button = QPushButton('Open project...')
         self.new_button = QPushButton('New project...')
         self.reload_button = QPushButton('Reload config')
-        self.reload_button.setEnabled(False)
+        self.close_button = QPushButton('Close project')
         self.status = QLabel()
         self.summary = QLabel()
         self.table = QTableWidget(0, len(_COLUMNS))
@@ -110,25 +112,40 @@ class ProjectTab(QWidget):
         form.addWidget(estimators)
         form.addWidget(self.save_button)
         form.addStretch()
-        self.settings.setEnabled(False)
+        start = QWidget()
+        start_layout = QVBoxLayout(start)
+        start_layout.addStretch()
+        start_layout.addWidget(heading('No project open'), alignment=Qt.AlignmentFlag.AlignHCenter)
+        for button in (self.new_button, self.open_button):
+            button.setMinimumWidth(220)
+            start_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        start_layout.addStretch()
+        # page 1: the open project
         top = QHBoxLayout()
-        top.addWidget(self.open_button)
-        top.addWidget(self.new_button)
-        top.addWidget(self.reload_button)
         top.addWidget(self.path_label, 1)
+        top.addWidget(self.reload_button)
+        top.addWidget(self.close_button)
         left = QVBoxLayout()
         left.addWidget(self.summary)
         left.addWidget(self.table)
         body = QHBoxLayout()
         body.addLayout(left, 3)
         body.addWidget(self.settings, 1)
+        opened = QWidget()
+        opened_layout = QVBoxLayout(opened)
+        opened_layout.setContentsMargins(0, 0, 0, 0)
+        opened_layout.addLayout(top)
+        opened_layout.addLayout(body)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(start)
+        self.stack.addWidget(opened)
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        layout.addWidget(self.stack, 1)
         layout.addWidget(self.status)
-        layout.addLayout(body)
         self.open_button.clicked.connect(self._open_dialog)
         self.new_button.clicked.connect(self._new_dialog)
         self.reload_button.clicked.connect(self._reload)
+        self.close_button.clicked.connect(self.close_project)
         self.save_button.clicked.connect(self.save_settings)
 
     # open_config: open a config.toml in the background
@@ -143,9 +160,16 @@ class ProjectTab(QWidget):
         self._fill_table(project)
         self.source_box.setCurrentText(project.config.source)
         self.ring_form.set(project.config.ring)
-        self.settings.setEnabled(True)
+        self.stack.setCurrentIndex(1)
         self._idle('')
         self.project_changed.emit(project)
+
+    # close_project: close the open project and go back to the start page
+    def close_project(self) -> None:
+        self.project = None
+        self.stack.setCurrentIndex(0)
+        self.status.setText('')
+        self.project_closed.emit()
 
     # save_settings: write source and ring parameters to config.toml
     def save_settings(self) -> None:
@@ -209,18 +233,16 @@ class ProjectTab(QWidget):
         self.set_project(project)
         self.status.setText(f'Created with {result.count} tomograms, {len(result.skipped)} duplicates skipped')
 
-    # _busy: block the open, create and reload buttons while work runs
+    # _busy: block the open, create, reload and close buttons while work runs
     def _busy(self, message: str) -> None:
-        self.open_button.setEnabled(False)
-        self.new_button.setEnabled(False)
-        self.reload_button.setEnabled(False)
+        for button in (self.open_button, self.new_button, self.reload_button, self.close_button):
+            button.setEnabled(False)
         self.status.setText(message)
 
-    # _idle: unblock the buttons, reload only with a project open
+    # _idle: unblock the buttons
     def _idle(self, message: str) -> None:
-        self.open_button.setEnabled(True)
-        self.new_button.setEnabled(True)
-        self.reload_button.setEnabled(self.project is not None)
+        for button in (self.open_button, self.new_button, self.reload_button, self.close_button):
+            button.setEnabled(True)
         self.status.setText(message)
 
     # _failed: show an error from background work
