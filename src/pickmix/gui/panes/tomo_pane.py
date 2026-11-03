@@ -1,5 +1,5 @@
 '''
-pickmix: tomogram dock
+pickmix: tomogram pane
 '''
 
 # Import external dependencies
@@ -14,8 +14,8 @@ COLOUR_VISITED: QColor = QColor('#2e9e44')
 COLOUR_PENDING: QColor = QColor('#e08a00')
 COLOUR_CURRENT: QColor = QColor('#2f7fe0')
 
-# TomoDock: one line per tomogram with number, name and picks, coloured by state
-class TomoDock(QWidget):
+# TomoPane: one line per tomogram with number, name and picks, coloured by state
+class TomoPane(QWidget):
     # __init__: build the widgets
     def __init__(self) -> None:
         super().__init__()

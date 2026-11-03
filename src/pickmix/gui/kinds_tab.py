@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 # Import internal pickmix objects
 from pickmix.config import HOTKEYS, Kind
 from pickmix.estimates import EstimateService
-from pickmix.gui.average_pane import AveragePane
+from pickmix.gui.panes.average_pane import AveragePane
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 from pickmix.gui.style import heading, icon, tidy
 from pickmix.model import Session

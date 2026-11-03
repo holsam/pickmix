@@ -14,7 +14,7 @@ from pickmix.estimates import EstimateService
 from pickmix.gui.pick_tab import PickTab
 from pickmix.gui.project_tab import ProjectTab
 from pickmix.gui.review_tab import ReviewTab
-from pickmix.gui.tomo_dock import TomoDock
+from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import Project
@@ -35,7 +35,7 @@ class MainWindow(QMainWindow):
         self.kinds_tab = KindsTab()
         self.pick_tab = PickTab()
         self.review_tab = ReviewTab()
-        self.dock = TomoDock()
+        self.dock = TomoPane()
         self.tabs.addTab(self.project_tab, 'Project')
         self.tabs.addTab(self.kinds_tab, 'Kinds')
         self.tabs.addTab(self.pick_tab, 'Pick')
