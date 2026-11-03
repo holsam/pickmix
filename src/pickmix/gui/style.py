@@ -37,6 +37,14 @@ def help_marker(text: str) -> QLabel:
     label.setCursor(Qt.CursorShape.WhatsThisCursor)
     return label
 
+# eye_toggle: small grey eye icon (open when shown, crossed when hidden) on a toggle, or the words (hidden)/(shown) without the icon files
+def eye_toggle(button: QPushButton, shown: bool) -> None:
+    eye = icon('visibility' if shown else 'visibility_off')
+    if eye is None:
+        button.setText('(hidden)' if shown else '(shown)')
+    else:
+        button.setIcon(eye)
+
 # form_label: "Title (?):" for the label column of a form, the marker explaining the field on hover
 def form_label(title: str, tip: str) -> QWidget:
     label = QLabel(title)
@@ -69,6 +77,15 @@ def hint(text: str = '') -> QLabel:
     label = _styled(text, HINT_STEP, bold=False)
     label.setStyleSheet('color: gray')
     return label
+
+# bold_safe: style a checkable text button so it is bold when checked without changing its width
+def bold_safe(button: QPushButton) -> None:
+    plain = 'QPushButton { border: none; background: transparent; padding: 2px 4px; }'
+    bold = 'QPushButton { border: none; background: transparent; padding: 2px 4px; font-weight: bold; }'
+    button.setStyleSheet(bold)
+    button.ensurePolished()
+    button.setMinimumWidth(button.sizeHint().width())
+    button.setStyleSheet(plain + 'QPushButton:checked { font-weight: bold; }')
 
 # _styled: a label in the application font shifted by step points
 def _styled(text: str, step: float, *, bold: bool) -> QLabel:

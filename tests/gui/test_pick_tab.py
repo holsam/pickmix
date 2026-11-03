@@ -100,7 +100,7 @@ class TestPickTab:
     def test_hide_kind(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()
         session.store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
-        tab.kind_boxes['cage'].setChecked(False)
+        tab.kind_toggles['cage'].setChecked(False)
         assert tab.canvas.marker_ids() == [] and tab.table.rowCount() == 1
 
     # test_navigation_clears_selection: a new tomogram starts with no selection and its own picks
@@ -160,7 +160,7 @@ class TestPickTab:
         assert tab.active == 'green'
         tab._pick_kind(2)
         assert tab.active == 'cage'
-        assert tab.kind_buttons['green'].text() == '2 green' and tab.kind_buttons['yellow'].text() == 'yellow'
+        assert tab.kind_buttons['green'].text() == '(2) green' and tab.kind_buttons['yellow'].text() == 'yellow'
 
     # test_no_kinds: with every kind deleted there is no active kind and a click adds nothing
     def test_no_kinds(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
@@ -178,3 +178,14 @@ class TestPickTab:
         tab, session = setup()
         assert tab.title.text() == session.current and tab.title.font().bold()
         assert 'Enter' in tab.help.text()
+
+    # test_hotkeys_row: the key and name label chooses the kind, the eye icon toggles it and starts checked
+    def test_hotkeys_row(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.kind_buttons['yellow'].text() == '(2) yellow'
+        assert all(t.isChecked() for t in tab.kind_toggles.values())
+        assert tab.kind_buttons['yellow'].minimumWidth() > 0
+        tab.kind_toggles['yellow'].click()
+        assert 'yellow' in tab.hidden and not tab.kind_toggles['yellow'].isChecked()
+        tab._pick_kind(1)
+        assert tab.active == 'yellow'

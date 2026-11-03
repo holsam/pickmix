@@ -8,8 +8,8 @@ from concurrent.futures import Future
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QPushButton,
-    QSlider, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton,
+    QSlider, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
@@ -17,7 +17,7 @@ from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.workers import post
-from pickmix.gui.style import hint, title
+from pickmix.gui.style import bold_safe, eye_toggle, hint, title
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -48,7 +48,7 @@ class PickTab(QWidget):
         self.status = QLabel()
         self.kind_row = QHBoxLayout()
         self.kind_buttons: dict[str, QPushButton] = {}
-        self.kind_boxes: dict[str, QCheckBox] = {}
+        self.kind_toggles: dict[str, QPushButton] = {}
         self.group = QButtonGroup(self)
         self.z_slider = QSlider(Qt.Orientation.Horizontal)
         self.z_label = QLabel()
@@ -134,7 +134,7 @@ class PickTab(QWidget):
         self.refresh_kinds()
         self._on_goto()
 
-    # refresh_kinds: rebuild the kind buttons from the config, keeping the active kind if it still exists
+    # refresh_kinds: rebuild the hotkeys row from the config, keeping the active kind if it still exists
     def refresh_kinds(self) -> None:
         if self.session is None:
             return
@@ -144,26 +144,46 @@ class PickTab(QWidget):
             widget = self.kind_row.takeAt(0).widget()
             if widget is not None:
                 widget.deleteLater()
-        self.kind_buttons, self.kind_boxes = {}, {}
+        self.kind_buttons, self.kind_toggles = {}, {}
         kinds = self.session.project.config.kinds
         self.hidden &= set(kinds)
         # key number of each kind that has a hotkey
         keys = {name: i + 1 for i, name in enumerate(self.session.project.config.hotkeys) if name}
+        self.kind_row.addWidget(hint('Hotkeys:'))
         for name, kind in kinds.items():
-            button = QPushButton(f'{keys[name]} {name}' if name in keys else name)
-            button.setCheckable(True)
-            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            button.setStyleSheet(f'QPushButton {{ border-bottom: 4px solid {kind.colour}; padding: 4px 10px; }}')
-            button.clicked.connect(lambda _checked=False, n=name: self._set_active(n))
-            box = QCheckBox('show')
-            box.setChecked(name not in self.hidden)
-            box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            box.toggled.connect(lambda shown, n=name: self._toggle_kind(n, shown))
-            self.group.addButton(button)
-            self.kind_buttons[name], self.kind_boxes[name] = button, box
-            self.kind_row.addWidget(button)
-            self.kind_row.addWidget(box)
+            # first button selects kind
+            key = QPushButton(f'({keys[name]}) {name}' if name in keys else name)
+            key.setCheckable(True)
+            key.setFlat(True)
+            key.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            key.setCursor(Qt.CursorShape.PointingHandCursor)
+            bold_safe(key)
+            key.clicked.connect(lambda _checked=False, n=name: self._set_active(n))
+            # second button shows/hides markers
+            toggle = QToolButton()
+            toggle.setCheckable(True)
+            toggle.setChecked(name not in self.hidden)
+            toggle.setAutoRaise(True)
+            toggle.setStyleSheet('QToolButton { border: none; background: transparent; }')
+            toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+            toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            toggle.setToolTip(f'Show or hide {name}')
+            eye_toggle(toggle, toggle.isChecked())
+            toggle.toggled.connect(lambda shown, n=name, t=toggle: (eye_toggle(t, shown), self._toggle_kind(n, shown)))
+            self.group.addButton(key)
+            self.kind_buttons[name], self.kind_toggles[name] = key, toggle
+            # add rounded border in kind's colour around both buttons
+            pair = QFrame()
+            pair.setObjectName('pair')
+            pair.setStyleSheet(f'QFrame#pair {{ border: 2px solid {kind.colour}; border-radius: 8px; }}')
+            pair_row = QHBoxLayout(pair)
+            pair_row.setContentsMargins(4, 2, 4, 2)
+            pair_row.setSpacing(0)
+            pair_row.addWidget(key)
+            pair_row.addWidget(toggle)
+            self.kind_row.addWidget(pair)
         self.kind_row.addStretch()
+        # no kinds leaves nothing to pick as
         if kinds:
             self._set_active(self.active if self.active in kinds else next(iter(kinds)))
         else:
