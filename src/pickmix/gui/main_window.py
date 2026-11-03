@@ -43,12 +43,16 @@ class MainWindow(QMainWindow):
         for i in range(1, self.tabs.count()):
             self.tabs.setTabEnabled(i, False)
         self.setCentralWidget(self.tabs)
-        dock = QDockWidget('Tomograms')
-        dock.setWidget(self.dock)
-        dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
+        self.dock_widget = QDockWidget('Tomograms')
+        self.dock_widget.setWidget(self.dock)
+        self.dock_widget.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.dock_widget.hide()
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_widget)
+        self.tabs.currentChanged.connect(self._sync_dock)
+        self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.config_saved.connect(self._on_settings)
+        self.project_tab.project_closed.connect(self._on_closed)
         self.kinds_tab.config_saved.connect(self._on_kinds)
         self.review_tab.open_pick.connect(self._open_pick)
         for keys, delta in (('Return', 1), ('Enter', 1), ('Shift+Return', -1), ('Shift+Enter', -1)):
@@ -67,14 +71,15 @@ class MainWindow(QMainWindow):
             return
         self.session.step(delta)
 
+    # _sync_dock: the tomogram dock is only for the Pick tab, and only with a session
+    def _sync_dock(self) -> None:
+        self.dock_widget.setVisible(self.session is not None and self.tabs.currentWidget() is self.pick_tab)
+
     # _on_project: build the session and loader for a project and unlock the tabs
     def _on_project(self, project: Project) -> None:
         self.project = project
         self.setWindowTitle(f'pickmix: {project.path}')
-        if self.service is not None:
-            self.service.shutdown()
-        if self.loader is not None:
-            self.loader.shutdown()
+        self._shutdown()
         self.kinds_tab.set_project(project)
         if project.tomos:
             self.session, self.loader = Session(project), Loader(project)
@@ -82,14 +87,34 @@ class MainWindow(QMainWindow):
             self.pick_tab.set_session(self.session, self.loader, self.service)
             self.review_tab.set_session(self.session, self.loader, self.service)
             self.dock.set_session(self.session)
-            self.kinds_tab.average.set_session(self.session, self.service)
+            self.kinds_tab.set_session(self.session, self.service)
         else:
             self.session = self.loader = self.service = None
-            self.kinds_tab.average.set_session(None, None)
+            self.kinds_tab.set_session(None, None)
         for i in range(1, self.tabs.count()):
             self.tabs.setTabEnabled(i, True)
         self.tabs.setTabEnabled(2, self.session is not None)
         self.tabs.setTabEnabled(3, self.session is not None)
+        self._sync_dock()
+
+    # _shutdown: stop the estimate service and loader of the current project, if any
+    def _shutdown(self) -> None:
+        if self.service is not None:
+            self.service.shutdown()
+        if self.loader is not None:
+            self.loader.shutdown()
+        self.session = self.loader = self.service = None
+
+    # _on_closed: no project; lock everything but the Project tab
+    def _on_closed(self) -> None:
+        self._shutdown()
+        self.project = None
+        self.setWindowTitle('pickmix')
+        self.kinds_tab.set_session(None, None)
+        for i in range(1, self.tabs.count()):
+            self.tabs.setTabEnabled(i, False)
+        self.tabs.setCurrentWidget(self.project_tab)
+        self._sync_dock()
 
     # _on_settings: source or estimator settings changed, so start the session and loader afresh
     def _on_settings(self) -> None:

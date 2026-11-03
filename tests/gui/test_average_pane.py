@@ -35,13 +35,14 @@ def pane(qtbot: QtBot, make_config: Callable[..., Path]) -> Iterator[tuple[Avera
 
 # TestAveragePane: Average pane
 class TestAveragePane:
-    # test_lists_tomograms_with_picks: only tomograms with picks of the kind are offered, all selected
-    def test_lists_tomograms_with_picks(self, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+    # test_summary: picks, tomograms and picks per tomogram for the chosen kind
+    def test_summary(self, pane: tuple[AveragePane, Session, EstimateService]) -> None:
         widget, session, _ = pane
-        assert widget.tomo_list.count() == 0
+        assert widget.summary.text() == 'No picks of this kind'
         session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        session.store.add(NAME, 'yellow', 5.0, 3.0, 2.0)
         widget.refresh_kinds()
-        assert widget.tomo_list.count() == 1 and len(widget.tomo_list.selectedItems()) == 1
+        assert widget.summary.text() == '2 picks in 1 tomograms (2.0 per tomogram)'
 
     # test_run_shows_images: running averages the picks and shows the mean and montage
     def test_run_shows_images(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:

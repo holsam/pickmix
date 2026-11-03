@@ -9,6 +9,9 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+# Import internal pickmix objects
+from pickmix.gui.style import tidy
+
 # PathField: a line edit with a browse button for a directory
 class PathField(QWidget):
     # __init__: build the field
@@ -66,6 +69,7 @@ class NewProjectDialog(QDialog):
         row.addWidget(remove)
         row.addStretch()
         layout = QVBoxLayout(self)
+        tidy(layout)
         layout.addLayout(form)
         layout.addWidget(self.runs)
         layout.addLayout(row)

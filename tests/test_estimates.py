@@ -92,3 +92,12 @@ class TestEstimates:
         pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
         time.sleep(0.1)
         assert service.store.state(pick) == 'missing'
+
+    # test_rename_kind_keeps_fits: a renamed kind keeps its fits instead of being estimated again
+    def test_rename_kind_keeps_fits(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        service.session.project.update(kinds={'gold': Kind(marker_a=100, box_a=100)})
+        service.store.rename_kind('yellow', 'gold')
+        service.session.store.rename_kind('yellow', 'gold')
+        assert pick.kind == 'gold' and service.store.get(pick) is not None and service.pending == 0

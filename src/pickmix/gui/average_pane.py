@@ -4,6 +4,7 @@ pickmix: Average pane of the Kinds tab
 
 # Import external dependencies
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout
 
 # Import internal pickmix objects
@@ -11,6 +12,7 @@ from pickmix.average import AverageResult, average_kind
 from pickmix.estimates import EstimateService
 from pickmix.export import Item
 from pickmix.gui.images import to_pixmap
+from pickmix.gui.style import tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.model import Session
 
@@ -26,9 +28,7 @@ class AveragePane(QGroupBox):
         self.service: EstimateService | None = None
         self.result: AverageResult | None = None
         self.kind_box = QComboBox()
-        self.tomo_list = QListWidget()
-        self.tomo_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-        self.tomo_list.setMaximumHeight(110)
+        self.summary = QLabel()
         self.run_button = QPushButton('Run')
         self.status = QLabel()
         self.mean_label = QLabel('mean')
@@ -39,20 +39,23 @@ class AveragePane(QGroupBox):
             label.setStyleSheet('background: #141414; color: #888')
         self.results_list = QListWidget()
         self.results_list.setMaximumWidth(220)
-        left = QVBoxLayout()
-        left.addWidget(QLabel('Kind'))
-        left.addWidget(self.kind_box)
-        left.addWidget(QLabel('Tomograms with picks'))
-        left.addWidget(self.tomo_list)
-        left.addWidget(self.run_button)
-        left.addWidget(self.status)
-        left.addStretch()
-        body = QHBoxLayout(self)
-        body.addLayout(left)
-        body.addWidget(self.mean_label)
-        body.addWidget(self.montage_label)
-        body.addWidget(self.results_list)
-        self.kind_box.currentTextChanged.connect(self._fill_tomograms)
+        # kind, summary and console above the images
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel('Kind'))
+        controls.addWidget(self.kind_box)
+        controls.addWidget(self.run_button)
+        controls.addWidget(self.summary, 1)
+        images = QHBoxLayout()
+        images.addWidget(self.mean_label)
+        images.addWidget(self.montage_label)
+        images.addWidget(self.results_list)
+        images.addStretch()
+        body = QVBoxLayout(self)
+        tidy(body)
+        body.addLayout(controls)
+        body.addWidget(self.status)
+        body.addLayout(images)
+        self.kind_box.currentTextChanged.connect(self._update_summary)
         self.run_button.clicked.connect(self.run)
         self.results_list.currentRowChanged.connect(self._show_row)
 
@@ -70,17 +73,16 @@ class AveragePane(QGroupBox):
             self.kind_box.addItems(list(self.session.project.config.kinds))
             self.kind_box.setCurrentText(current)
         self.kind_box.blockSignals(False)
-        self._fill_tomograms()
+        self._update_summary()
 
-    # items: current fits of the chosen kind in the selected tomograms
+    # items: current fits of the chosen kind in every tomogram
     def items(self) -> list[Item]:
         if self.session is None or self.service is None:
             return []
-        chosen = {i.text() for i in self.tomo_list.selectedItems()}
         out = []
         for pick in self.session.store.all(self.kind_box.currentText()):
             fit = self.service.store.get(pick)
-            if fit is not None and pick.tomogram in chosen:
+            if fit is not None:
                 out.append((pick, fit))
         return out
 
@@ -88,6 +90,7 @@ class AveragePane(QGroupBox):
     def run(self) -> None:
         if self.session is None:
             return
+        self._update_summary()
         items, name = self.items(), self.kind_box.currentText()
         if not items:
             self.status.setText('No picks with a current estimate in the selected tomograms')
@@ -97,16 +100,19 @@ class AveragePane(QGroupBox):
         self.status.setText(f'Averaging {len(items)} picks...')
         run_in_background(lambda: average_kind(name, config.kinds[name], items, tomos, config), self._done, self._failed)
 
-    # _fill_tomograms: tomograms that have picks of the chosen kind, all selected
-    def _fill_tomograms(self) -> None:
-        self.tomo_list.clear()
-        if self.session is None:
+    # _update_summary: total picks, tomograms with picks and picks per tomogram for the chosen kind
+    def _update_summary(self) -> None:
+        picks = self.session.store.all(self.kind_box.currentText()) if self.session is not None else []
+        tomograms = len({p.tomogram for p in picks})
+        if not tomograms:
+            self.summary.setText('No picks of this kind')
             return
-        kind = self.kind_box.currentText()
-        for name in self.session.names:
-            if self.session.store.count(name, kind):
-                self.tomo_list.addItem(name)
-        self.tomo_list.selectAll()
+        self.summary.setText(f'{len(picks)} picks in {tomograms} tomograms ({len(picks) / tomograms:.1f} per tomogram)')
+
+    # showEvent: picks change on other tabs, so refresh the summary whenever this pane appears
+    def showEvent(self, event: QShowEvent) -> None:
+        self._update_summary()
+        super().showEvent(event)
 
     # _done: show the overall mean and list what can be looked at
     def _done(self, result: AverageResult) -> None:

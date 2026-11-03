@@ -108,3 +108,23 @@ class TestModel:
         session.goto_listeners.append(lambda: heard.append(session.current))
         session.step(1)
         assert heard == ['Position_1_3']
+
+    # test_rename_kind: every pick of a kind moves to the new name, is saved once and is heard once
+    def test_rename_kind(self, make_config: Callable[..., Path]) -> None:
+        store = _store(make_config)
+        store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
+        store.add('Position_1_2', 'cage', 2.0, 1.0, 1.0)
+        store.add('Position_1_2', 'other', 3.0, 1.0, 1.0)
+        heard: list[int] = []
+        store.listeners.append(lambda: heard.append(1))
+        assert store.rename_kind('cage', 'ring') == 2 and store.rename_kind('nothing', 'x') == 0
+        assert [p.kind for p in store.all()] == ['ring', 'ring', 'other'] and heard == [1]
+        assert sorted(p.kind for p in PickStore(store.project).all()) == ['other', 'ring', 'ring']
+
+    # test_remove_kind: every pick of a kind goes, the rest stay, and the file follows
+    def test_remove_kind(self, make_config: Callable[..., Path]) -> None:
+        store = _store(make_config)
+        store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
+        store.add('Position_1_2', 'other', 3.0, 1.0, 1.0)
+        assert store.remove_kind('cage') == 1 and store.remove_kind('cage') == 0
+        assert [p.kind for p in PickStore(store.project).all()] == ['other']

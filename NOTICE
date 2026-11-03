@@ -1,0 +1,36 @@
+pickmix bundles the following third-party material.
+
+add.svg
+    Material Symbols "add_circle" icon
+    Copyright (c) Google LLC
+    Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
+    Source: https://github.com/google/material-design-icons
+    Modifications: fill colour set to #ffffff
+
+edit.svg
+    Material Symbols "edit" icon
+    Copyright (c) Google LLC
+    Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
+    Source: https://github.com/google/material-design-icons
+    Modifications: fill colour set to #ffffff
+
+help.svg
+    Material Symbols "help" icon
+    Copyright (c) Google LLC
+    Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
+    Source: https://github.com/google/material-design-icons
+    Modifications: fill colour set to #8a8a8a
+
+visibility.svg
+    Material Symbols "visibiility" icon
+    Copyright (c) Google LLC
+    Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
+    Source: https://github.com/google/material-design-icons
+    Modifications: fill colour set to #8a8a8a
+
+visibility_off.svg
+    Material Symbols "visibility_off" icon
+    Copyright (c) Google LLC
+    Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
+    Source: https://github.com/google/material-design-icons
+    Modifications: fill colour set to #8a8a8a

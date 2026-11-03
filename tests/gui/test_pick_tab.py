@@ -6,6 +6,8 @@ pickmix: tests for the Pick tab
 import pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHeaderView
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
@@ -100,7 +102,7 @@ class TestPickTab:
     def test_hide_kind(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()
         session.store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
-        tab.kind_boxes['cage'].setChecked(False)
+        tab.kind_toggles['cage'].setChecked(False)
         assert tab.canvas.marker_ids() == [] and tab.table.rowCount() == 1
 
     # test_navigation_clears_selection: a new tomogram starts with no selection and its own picks
@@ -148,3 +150,54 @@ class TestPickTab:
         qtbot.waitUntil(lambda: tab.canvas.normal_visible(near.id), timeout=5000)
         qtbot.waitUntil(lambda: 'noparent' in {tab.table.item(r, 5).text() for r in range(tab.table.rowCount())}, timeout=5000)
         assert [tab.table.item(r, 5).text() for r in range(3)] == ['', '', 'noparent']
+
+    # test_hotkeys_follow_config: keys choose the kind the config puts on them, and buttons show their number
+    def test_hotkeys_follow_config(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(hotkeys=['', 'green', 'cage'])
+        tab.refresh_kinds()
+        tab._pick_kind(0)
+        assert tab.active == 'cage'
+        tab._pick_kind(1)
+        assert tab.active == 'green'
+        tab._pick_kind(2)
+        assert tab.active == 'cage'
+        assert tab.kind_buttons['green'].text() == '(2) green' and tab.kind_buttons['yellow'].text() == 'yellow'
+
+    # test_no_kinds: with every kind deleted there is no active kind and a click adds nothing
+    def test_no_kinds(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(kinds={})
+        tab.refresh_kinds()
+        assert tab.active is None and tab.kind_buttons == {}
+        tab.canvas.add_requested.emit(1.0, 1.0)
+        assert session.store.all() == []
+        tab._pick_kind(0)
+        assert tab.active is None
+
+    # test_title_is_name_only: the title is the tomogram name, with the navigation help kept below
+    def test_title_is_name_only(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        assert tab.title.text() == session.current and tab.title.font().bold()
+        assert 'Enter' in tab.help.text()
+
+    # test_hotkeys_row: the key and name label chooses the kind, the eye icon toggles it and starts checked
+    def test_hotkeys_row(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.kind_buttons['yellow'].text() == '(2) yellow'
+        assert all(t.isChecked() for t in tab.kind_toggles.values())
+        assert tab.kind_buttons['yellow'].minimumWidth() > 0
+        tab.kind_toggles['yellow'].click()
+        assert 'yellow' in tab.hidden and not tab.kind_toggles['yellow'].isChecked()
+        tab._pick_kind(1)
+        assert tab.active == 'yellow'
+
+    # test_layout: Z is a vertical scrollbar and image and overlay controls sit in the settings pane
+    def test_layout(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.z_slider.orientation() == Qt.Orientation.Vertical
+        for widget in (tab.lo_slider, tab.hi_slider, tab.invert_box, tab.auto_button, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box):
+            assert tab.settings.isAncestorOf(widget)
+        assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
+        header = tab.table.horizontalHeader()
+        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.ResizeToContents and header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch

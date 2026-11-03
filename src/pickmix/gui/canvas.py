@@ -183,7 +183,7 @@ class SliceCanvas(QGraphicsView):
     # mousePressEvent: pan, select or drag a marker, or request a new pick
     def mousePressEvent(self, event: QMouseEvent) -> None:
         pos = self.mapToScene(event.position().toPoint())
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if event.button() == Qt.MouseButton.RightButton:
             self._pan = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
@@ -216,7 +216,7 @@ class SliceCanvas(QGraphicsView):
 
     # mouseReleaseEvent: finish a pan, or finish a marker press as a click or a move
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton and self._pan is not None:
+        if event.button() == Qt.MouseButton.RightButton and self._pan is not None:
             self._pan = None
             self.unsetCursor()
         elif event.button() == Qt.MouseButton.LeftButton and self._drag is not None:

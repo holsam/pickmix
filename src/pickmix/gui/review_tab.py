@@ -18,6 +18,7 @@ from pickmix.export import Item, export_kind, recommend_box
 from pickmix.extract import extract_kind
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.images import to_pixmap
+from pickmix.gui.style import tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.loader import Loader
 from pickmix.model import Pick, Session
@@ -111,6 +112,7 @@ class ReviewTab(QWidget):
         box.addLayout(buttons)
         box.addWidget(self.log)
         layout = QVBoxLayout(self)
+        tidy(layout)
         layout.addLayout(filters)
         layout.addLayout(body, 1)
         layout.addWidget(export)
