@@ -101,6 +101,22 @@ class PickStore:
             del self._picks[pick_id]
         self._changed()
 
+    # rename_kind: move every pick of a kind to a new name; saves and notifies once, returns how many moved
+    def rename_kind(self, old: str, new: str) -> int:
+        moved = self.all(old)
+        for pick in moved:
+            pick.kind = new
+        if moved:
+            self._changed()
+        return len(moved)
+
+    # remove_kind: delete every pick of a kind; saves and notifies once, returns how many went
+    def remove_kind(self, kind: str) -> int:
+        ids = [p.id for p in self.all(kind)]
+        if ids:
+            self.remove(*ids)
+        return len(ids)
+
     # save: write the CSV atomically
     def save(self) -> None:
         pixel = {name: t.pixel_size for name, t in self.project.tomos.items()}

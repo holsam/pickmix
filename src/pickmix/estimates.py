@@ -74,6 +74,11 @@ class EstimateStore:
         for listener in self.listeners:
             listener()
 
+    # rename_kind: keep the fits of a renamed kind; written with the next estimate, and rows that never match a pick are dropped then
+    def rename_kind(self, old: str, new: str) -> None:
+        with self._lock:
+            self._rows = {(_key(r.tomogram, new, r.pick_x, r.pick_y, r.pick_z) if r.kind == old else k): r.model_copy(update={'kind': new}) if r.kind == old else r for k, r in self._rows.items()}
+
     # _save: write the CSV atomically, keeping only rows that belong to a pick now
     def _save(self) -> None:
         live = {_key(p.tomogram, p.kind, p.x, p.y, p.z) for p in self.picks.all()}
