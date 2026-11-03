@@ -87,10 +87,10 @@ class MainWindow(QMainWindow):
             self.pick_tab.set_session(self.session, self.loader, self.service)
             self.review_tab.set_session(self.session, self.loader, self.service)
             self.dock.set_session(self.session)
-            self.kinds_tab.average.set_session(self.session, self.service)
+            self.kinds_tab.set_session(self.session, self.service)
         else:
             self.session = self.loader = self.service = None
-            self.kinds_tab.average.set_session(None, None)
+            self.kinds_tab.set_session(None, None)
         for i in range(1, self.tabs.count()):
             self.tabs.setTabEnabled(i, True)
         self.tabs.setTabEnabled(2, self.session is not None)
@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         self._shutdown()
         self.project = None
         self.setWindowTitle('pickmix')
-        self.kinds_tab.average.set_session(None, None)
+        self.kinds_tab.set_session(None, None)
         for i in range(1, self.tabs.count()):
             self.tabs.setTabEnabled(i, False)
         self.tabs.setCurrentWidget(self.project_tab)

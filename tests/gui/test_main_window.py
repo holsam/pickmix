@@ -27,7 +27,7 @@ class TestMainWindow:
         window = MainWindow()
         qtbot.addWidget(window)
         window.project_tab.set_project(open_project(make_config()))
-        assert window.kinds_tab.table.item(0, 0).text() == 'cage'
+        assert window.kinds_tab.kind_names() == ['cage']
 
     # test_step_only_on_pick_tab: Enter steps tomograms on the Pick tab and nowhere else
     def test_step_only_on_pick_tab(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
@@ -95,3 +95,17 @@ class TestMainWindow:
         window.project_tab.close_button.click()
         assert window.project is None and window.session is None
         assert [window.tabs.isTabEnabled(i) for i in range(4)] == [True, False, False, False]
+
+    # test_no_kinds: a project with every kind deleted still opens, and every tab copes
+    def test_no_kinds(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        project = open_project(path)
+        project.update(kinds={})
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(path))
+        for tab in (window.pick_tab, window.review_tab, window.kinds_tab):
+            window.tabs.setCurrentWidget(tab)
+        assert window.kinds_tab.kind_names() == [] and window.pick_tab.active is None
+        window.service.shutdown()
+        window.loader.shutdown()
