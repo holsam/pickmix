@@ -103,3 +103,8 @@ class TestConfig:
         assert config.kinds == {} and config.hotkeys == [''] * 9
         save_config(config, tmp_path / 'config.toml')
         assert load_config(tmp_path / 'config.toml') == config
+
+    # test_kind_documented: every kind field has a dialog label and a tooltip
+    def test_kind_documented(self) -> None:
+        for name, field in Kind.model_fields.items():
+            assert field.title and field.description, name

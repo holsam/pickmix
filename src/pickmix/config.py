@@ -11,24 +11,24 @@ from typing import Literal
 # HOTKEYS: number of hotkeys, keys 1 to 9
 HOTKEYS: int = 9
 
-# Kind: one class of particle
+# Kind: one class of particle; title and description feed the kind dialog
 class Kind(BaseModel):
     # displayed marker diameter, Angstrom
-    marker_a: float = Field(gt=0)
+    marker_a: float = Field(gt=0, title='Marker diameter (Å)', description='Diameter of the marker drawn on a pick.')
     # extraction box edge, Angstrom; 0 takes the box from the estimator
-    box_a: float = Field(default=0.0, ge=0)
+    box_a: float = Field(default=0.0, ge=0, title='Box edge (Å)', description='Extraction box edge. 0 takes the box from the estimator.')
     # name in the estimator registry
-    estimator: str = 'none'
+    estimator: str = Field(default='none', title='Estimator', description='Estimator that fits each pick of this kind.')
     # any Qt colour name or #rrggbb
-    colour: str = 'yellow'
+    colour: str = Field(default='blue', title='Colour', description='Marker colour: a name or hex code (#rrggbb).')
     # kind whose nearest estimate supplies membrane-normal geometry
-    parent: str | None = None
+    parent: str | None = Field(default=None, title='Parent', description='Kind whose nearest estimate supplies membrane-normal geometry.')
     # how far a pick may sit from the parent's surface and still count as on it
-    parent_tolerance_a: float = Field(default=100.0, gt=0)
+    parent_tolerance_a: float = Field(default=100.0, gt=0, title='Parent tolerance (Å)', description='How far a pick may sit from the parent surface and still count as on it.')
     # written as rlnAngleTiltPrior when set
-    tilt_prior_deg: float | None = None
+    tilt_prior_deg: float | None = Field(default=None, title='Tilt prior (°)', description='Written as rlnAngleTiltPrior when set, and left out otherwise.')
     # pixel size of the RELION extraction in Angstrom per pixel
-    extract_angpix: float = Field(default=10.68, gt=0)
+    extract_angpix: float = Field(default=10.68, gt=0, title='Extract pixel size (Å/px)', description='Pixel size of the RELION extraction in Å per pixel.')
 
 # RingParams: settings of the ring estimator, all lengths in Angstrom; title and description feed the settings form
 class RingParams(BaseModel):
