@@ -161,7 +161,10 @@ class PickTab(QWidget):
             self.kind_row.addWidget(button)
             self.kind_row.addWidget(box)
         self.kind_row.addStretch()
-        self._set_active(self.active if self.active in kinds else next(iter(kinds)))
+        if kinds:
+            self._set_active(self.active if self.active in kinds else next(iter(kinds)))
+        else:
+            self.active = None
         self._on_picks()
 
     # show_pick: go to a pick, in whichever tomogram it is, and select it

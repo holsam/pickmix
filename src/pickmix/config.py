@@ -83,8 +83,6 @@ class Config(BaseModel):
     @field_validator('kinds')
     @classmethod
     def _names(cls, kinds: dict[str, Kind]) -> dict[str, Kind]:
-        if not kinds:
-            raise ValueError('at least one kind is needed')
         for name in kinds:
             if not re.fullmatch(r'[A-Za-z0-9_]+', name):
                 raise ValueError(f'kind name {name!r} may only use letters, digits and underscores')

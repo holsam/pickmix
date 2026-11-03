@@ -96,3 +96,10 @@ class TestConfig:
     def test_replace_kinds_resets_hotkeys(self) -> None:
         config = _config().replace(kinds={'yellow': Kind(marker_a=100, box_a=100)})
         assert config.hotkeys == ['yellow', *[''] * 8]
+
+    # test_no_kinds: a config may have no kinds, which saves and loads as no kinds rather than the default
+    def test_no_kinds(self, tmp_path: Path) -> None:
+        config = Config(raw_dir=Path('/r'), tomograms_star=Path('/t.star'), out_dir=Path('/out'), kinds={})
+        assert config.kinds == {} and config.hotkeys == [''] * 9
+        save_config(config, tmp_path / 'config.toml')
+        assert load_config(tmp_path / 'config.toml') == config

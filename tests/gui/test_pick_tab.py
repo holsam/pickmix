@@ -161,3 +161,14 @@ class TestPickTab:
         tab._pick_kind(2)
         assert tab.active == 'cage'
         assert tab.kind_buttons['green'].text() == '2 green' and tab.kind_buttons['yellow'].text() == 'yellow'
+
+    # test_no_kinds: with every kind deleted there is no active kind and a click adds nothing
+    def test_no_kinds(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(kinds={})
+        tab.refresh_kinds()
+        assert tab.active is None and tab.kind_buttons == {}
+        tab.canvas.add_requested.emit(1.0, 1.0)
+        assert session.store.all() == []
+        tab._pick_kind(0)
+        assert tab.active is None
