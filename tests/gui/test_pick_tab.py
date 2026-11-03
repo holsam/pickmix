@@ -6,6 +6,7 @@ pickmix: tests for the Pick tab
 import pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
@@ -189,3 +190,13 @@ class TestPickTab:
         assert 'yellow' in tab.hidden and not tab.kind_toggles['yellow'].isChecked()
         tab._pick_kind(1)
         assert tab.active == 'yellow'
+
+    # test_layout: Z is a vertical scrollbar and image and overlay controls sit in the settings pane
+    def test_layout(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.z_slider.orientation() == Qt.Orientation.Vertical
+        for widget in (tab.lo_slider, tab.hi_slider, tab.invert_box, tab.auto_button, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box):
+            assert tab.settings.isAncestorOf(widget)
+        assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
+        header = tab.table.horizontalHeader()
+        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.ResizeToContents and header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch

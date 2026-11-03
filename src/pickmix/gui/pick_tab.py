@@ -8,8 +8,8 @@ from concurrent.futures import Future
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton,
-    QSlider, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
+    QScrollBar, QSlider, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
@@ -17,7 +17,7 @@ from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, hint, title
+from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, title
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -50,7 +50,8 @@ class PickTab(QWidget):
         self.kind_buttons: dict[str, QPushButton] = {}
         self.kind_toggles: dict[str, QPushButton] = {}
         self.group = QButtonGroup(self)
-        self.z_slider = QSlider(Qt.Orientation.Horizontal)
+        self.z_slider = QScrollBar(Qt.Orientation.Vertical)
+        self.z_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.z_label = QLabel()
         self.lo_slider = QSlider(Qt.Orientation.Horizontal)
         self.hi_slider = QSlider(Qt.Orientation.Horizontal)
@@ -69,38 +70,59 @@ class PickTab(QWidget):
         self.table.setHorizontalHeaderLabels(['Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setMaximumWidth(380)
+        self.table.setMaximumHeight(170)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.delete_button = QPushButton('Delete selected')
         for button in (self.auto_button, self.fit_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._row_ids: list[int] = []
-        z_row = QHBoxLayout()
-        z_row.addWidget(QLabel('Slice'))
-        z_row.addWidget(self.z_slider, 1)
-        z_row.addWidget(self.z_label)
-        contrast_row = QHBoxLayout()
-        contrast_row.addWidget(QLabel('Contrast'))
-        contrast_row.addWidget(self.lo_slider, 1)
-        contrast_row.addWidget(self.hi_slider, 1)
-        contrast_row.addWidget(self.rings_box)
-        contrast_row.addWidget(self.boxes_box)
-        contrast_row.addWidget(self.normals_box)
-        contrast_row.addWidget(self.invert_box)
-        contrast_row.addWidget(self.auto_button)
-        contrast_row.addWidget(self.fit_button)
-        side = QVBoxLayout()
-        side.addWidget(self.table, 1)
-        side.addWidget(self.delete_button)
+        # settings pane on the right: image controls, then overlays
+        image = QGroupBox('Image')
+        image_form = QFormLayout(image)
+        image_form.addRow('Contrast low', self.lo_slider)
+        image_form.addRow('Contrast high', self.hi_slider)
+        image_form.addRow(self.invert_box)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.auto_button)
+        buttons.addWidget(self.fit_button)
+        image_form.addRow(buttons)
+        overlay = QGroupBox('Overlay')
+        overlay_box = QVBoxLayout(overlay)
+        for box in (self.rings_box, self.boxes_box, self.normals_box):
+            overlay_box.addWidget(box)
+        self.settings = QWidget()
+        self.settings.setFixedWidth(260)
+        settings_layout = QVBoxLayout(self.settings)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.addWidget(image)
+        settings_layout.addWidget(overlay)
+        settings_layout.addStretch()
+        # vertical Z scrollbar between the canvas and the settings
+        z_column = QVBoxLayout()
+        z_column.addWidget(QLabel('Z'))
+        z_column.addWidget(self.z_slider, 1)
+        z_column.addWidget(self.z_label)
         middle = QHBoxLayout()
         middle.addWidget(self.canvas, 1)
-        middle.addLayout(side)
+        middle.addLayout(z_column)
+        middle.addWidget(self.settings)
+        # pick table under the canvas, with a Picks heading and the delete button level with it on the right
+        picks_head = QHBoxLayout()
+        picks_head.addWidget(heading('Picks'))
+        picks_head.addStretch()
+        picks_head.addWidget(self.delete_button)
+        bottom = QVBoxLayout()
+        bottom.addLayout(picks_head)
+        bottom.addWidget(self.table)
         layout = QVBoxLayout(self)
         layout.addWidget(self.title)
         layout.addWidget(self.help)
+        layout.addSpacing(8)
         layout.addLayout(self.kind_row)
         layout.addLayout(middle, 1)
-        layout.addLayout(z_row)
-        layout.addLayout(contrast_row)
+        layout.addLayout(bottom)
         layout.addWidget(self.status)
         self.z_slider.valueChanged.connect(self._show_z)
         self.lo_slider.valueChanged.connect(self._on_window)
@@ -277,7 +299,11 @@ class PickTab(QWidget):
             return
         name = self.opened.name
         self.z = z
-        self.z_label.setText(f'{z + 1} / {self.opened.vol.shape[0]}')
+        total = self.opened.vol.shape[0]
+        # as wide as the longest text it will show, so scrolling never changes the layout
+        self.z_label.setFixedWidth(self.z_label.fontMetrics().horizontalAdvance(f'{total} / {total}') + 8)
+        self.z_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.z_label.setText(f'{z + 1} / {total}')
         self.canvas.set_z(z)
         cached = self.loader.cached(name, z)
         if cached is not None:
