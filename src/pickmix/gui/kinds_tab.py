@@ -3,10 +3,11 @@ pickmix: Kinds tab, listing the kinds, choosing hotkeys and editing both in conf
 '''
 
 # Import external dependencies
+import html
 from pydantic import ValidationError
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QMessageBox,
+    QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -21,6 +22,9 @@ from pickmix.project import Project
 
 # NO_KIND: text of the hotkey choice that leaves a key unused
 NO_KIND: str = '(none)'
+
+# _CARD_WIDTH: narrowest a kind's block gets, in pixels, before the grid drops a column
+_CARD_WIDTH: int = 260
 
 # KindsTab: the kinds as a list with an edit button each, and one dropdown per hotkey
 class KindsTab(QWidget):
@@ -38,21 +42,24 @@ class KindsTab(QWidget):
         self.edit_buttons: dict[str, QToolButton] = {}
         self.add_button = QPushButton('Add')
         self.add_button.clicked.connect(self.add_kind)
-        self.cards = QVBoxLayout()
-        self.cards.addStretch()
+        self.cards: list[QWidget] = []
+        self._columns = 0
+        self.grid = QGridLayout()
+        self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         holder = QWidget()
-        holder.setLayout(self.cards)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(holder)
-        scroll.setMinimumHeight(220)
+        holder.setLayout(self.grid)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setWidget(holder)
+        self.scroll.setMinimumHeight(220)
+        self.scroll.viewport().installEventFilter(self)
         head = QHBoxLayout()
         head.addWidget(heading('Kinds'))
-        head.addWidget(self.add_button)
         head.addStretch()
+        head.addWidget(self.add_button)
         kinds_pane = QVBoxLayout()
         kinds_pane.addLayout(head)
-        kinds_pane.addWidget(scroll, 1)
+        kinds_pane.addWidget(self.scroll, 1)
         self.hotkey_boxes = [QComboBox() for _ in range(HOTKEYS)]
         keys = QFormLayout()
         for i, box in enumerate(self.hotkey_boxes):
@@ -83,6 +90,12 @@ class KindsTab(QWidget):
         self.session, self.service = session, service
         self.average.set_session(session, service)
 
+    # eventFilter: lay the kinds out again when the list is resized
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.scroll.viewport() and event.type() == QEvent.Type.Resize:
+            self._reflow()
+        return super().eventFilter(watched, event)
+
     # kind_names: the kinds listed, in order
     def kind_names(self) -> list[str]:
         return list(self.details)
@@ -99,19 +112,35 @@ class KindsTab(QWidget):
     def _show(self) -> None:
         assert self.project is not None
         self._loading = True
-        while self.cards.count() > 1:
-            item = self.cards.takeAt(0)
-            if item.widget() is not None:
-                item.widget().deleteLater()
-        self.details, self.edit_buttons = {}, {}
-        for i, (name, kind) in enumerate(self.project.config.kinds.items()):
-            self.cards.insertWidget(i, self._card(name, kind))
+        for card in self.cards:
+            self.grid.removeWidget(card)
+            card.deleteLater()
+        self.details, self.edit_buttons, self.cards = {}, {}, []
+        for name, kind in self.project.config.kinds.items():
+            self.cards.append(self._card(name, kind))
+        self._columns = 0
+        self._reflow()
         names = [NO_KIND, *self.project.config.kinds]
         for box, chosen in zip(self.hotkey_boxes, self.project.config.hotkeys, strict=True):
             box.clear()
             box.addItems(names)
             box.setCurrentText(chosen or NO_KIND)
         self._loading = False
+
+    # _reflow: put the kinds in as many equal columns as fit, filling across then down
+    def _reflow(self) -> None:
+        columns = max(1, self.scroll.viewport().width() // _CARD_WIDTH)
+        if columns == self._columns:
+            return
+        for c in range(self._columns):
+            self.grid.setColumnStretch(c, 0)
+        for card in self.cards:
+            self.grid.removeWidget(card)
+        for i, card in enumerate(self.cards):
+            self.grid.addWidget(card, i // columns, i % columns)
+        for c in range(columns):
+            self.grid.setColumnStretch(c, 1)
+        self._columns = columns
 
     # _card: the name as a subheading with its edit button, then the kind's values as plain text
     def _card(self, name: str, kind: Kind) -> QWidget:
@@ -122,13 +151,12 @@ class KindsTab(QWidget):
         else:
             button.setIcon(edit_icon)
         button.setAutoRaise(True)
+        button.setStyleSheet('QToolButton { border: none; background: transparent; }')
         button.setToolTip(f'Edit {name}')
         button.clicked.connect(lambda _checked=False, n=name: self.edit_kind(n))
         detail = QLabel(_describe(kind))
+        detail.setTextFormat(Qt.TextFormat.RichText)
         self.details[name], self.edit_buttons[name] = detail, button
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
         row = QHBoxLayout()
         row.addWidget(heading(name))
         row.addWidget(button)
@@ -138,7 +166,7 @@ class KindsTab(QWidget):
         box.setContentsMargins(0, 0, 0, 0)
         box.addLayout(row)
         box.addWidget(detail)
-        box.addWidget(line)
+        box.addStretch()
         return card
 
     # _edit: run the dialog for a new kind (name None) or an existing one, then save, delete or do nothing
@@ -228,12 +256,13 @@ class KindsTab(QWidget):
         self.status.setText('Saved')
         self.config_saved.emit()
 
-# _describe: a kind's values as two lines of plain text
+# _describe: a kind's values as a vertical list with bold keys
 def _describe(kind: Kind) -> str:
     box = 'from estimator' if kind.box_a == 0 else f'{kind.box_a:g} Å'
     parent = 'none' if kind.parent is None else f'{kind.parent} (within {kind.parent_tolerance_a:g} Å)'
     tilt = 'none' if kind.tilt_prior_deg is None else f'{kind.tilt_prior_deg:g}°'
-    return (
-        f'Marker: {kind.marker_a:g} Å    Box: {box}    Estimator: {kind.estimator}\n'
-        f'Colour: {kind.colour}    Parent: {parent}    Tilt prior: {tilt}    Extract: {kind.extract_angpix:g} Å/px'
-    )
+    pairs = [
+        ('Marker', f'{kind.marker_a:g} Å'), ('Box', box), ('Estimator', kind.estimator), ('Colour', kind.colour),
+        ('Parent', parent), ('Tilt prior', tilt), ('Extract', f'{kind.extract_angpix:g} Å/px'),
+    ]
+    return '<br>'.join(f'<b>{key}:</b> {html.escape(value)}' for key, value in pairs)

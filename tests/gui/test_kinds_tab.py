@@ -45,7 +45,7 @@ class TestKindsTab:
         tab, _ = _tab(qtbot, make_config)
         assert tab.kind_names() == ['cage'] and 'cage' in tab.edit_buttons
         text = tab.details['cage'].text()
-        assert 'Marker: 600 Å' in text and 'Box: from estimator' in text and 'Estimator: ring' in text and 'Parent: none' in text
+        assert '<b>Marker:</b> 600 Å' in text and '<b>Box:</b> from estimator' in text and '<b>Estimator:</b> ring' in text and '<b>Parent:</b> none' in text
 
     # test_hotkey_defaults: keys start on the kinds in order, the rest are unused
     def test_hotkey_defaults(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
@@ -83,7 +83,7 @@ class TestKindsTab:
         monkeypatch.setattr(KindDialog, 'exec', fake_exec)
         tab.edit_buttons['cage'].click()
         assert load_config(path).kinds['cage'].marker_a == 700
-        assert 'Marker: 700 Å' in tab.details['cage'].text()
+        assert '<b>Marker:</b> 700 Å' in tab.details['cage'].text()
 
     # test_cancel_changes_nothing: a cancelled dialog leaves the file alone
     def test_cancel_changes_nothing(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
@@ -179,3 +179,31 @@ class TestKindsTab:
         monkeypatch.setattr(KindsTab, '_confirm', lambda self, text: (_ for _ in ()).throw(AssertionError(text)))
         tab._delete('cage')
         assert tab.status.text().startswith('Not deleted') and session.store.total('cage') == 2
+
+    # test_details_are_a_vertical_list_with_bold_keys: one key per line, each key bold
+    def test_details_are_a_vertical_list_with_bold_keys(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        tab, _ = _tab(qtbot, make_config)
+        lines = tab.details['cage'].text().split('<br>')
+        assert len(lines) == 7 and all(line.startswith('<b>') and ':</b> ' in line for line in lines)
+
+    # test_kinds_flow_into_columns: a wide block gives one column, a narrow one gives several, filling across then down
+    def test_kinds_flow_into_columns(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        tab, _, _ = _tab_with_picks(qtbot, make_config)
+        tab.resize(900, 600)
+        tab.show()
+        position = lambda i: tab.grid.getItemPosition(tab.grid.indexOf(tab.cards[i]))[:2]
+        monkeypatch.setattr('pickmix.gui.kinds_tab._CARD_WIDTH', 10000)
+        tab._columns = 0
+        tab._reflow()
+        assert tab._columns == 1 and [position(i) for i in range(3)] == [(0, 0), (1, 0), (2, 0)]
+        monkeypatch.setattr('pickmix.gui.kinds_tab._CARD_WIDTH', 100)
+        tab._reflow()
+        assert tab._columns >= 3 and [position(i) for i in range(3)] == [(0, 0), (0, 1), (0, 2)]
+
+    # test_add_button_is_on_the_right: the Add button sits after the heading's stretch
+    def test_add_button_is_on_the_right(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        tab, _ = _tab(qtbot, make_config)
+        tab.resize(900, 600)
+        tab.show()
+        qtbot.waitUntil(lambda: tab.add_button.isVisible())
+        assert tab.add_button.mapTo(tab, tab.add_button.rect().topRight()).x() > tab.scroll.mapTo(tab, tab.scroll.rect().center()).x()
