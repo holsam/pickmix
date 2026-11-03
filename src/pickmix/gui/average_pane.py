@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWi
 from pickmix.average import AverageResult, average_kind
 from pickmix.estimates import EstimateService
 from pickmix.export import Item
-from pickmix.gui.images import to_pixmap
+from pickmix.gui.components.images import to_pixmap
 from pickmix.gui.style import tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.model import Session

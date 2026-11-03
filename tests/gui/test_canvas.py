@@ -10,7 +10,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
 
 # Import internal pickmix objects
-from pickmix.gui.canvas import FitView, Marker, SliceCanvas
+from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 
 # _canvas: a shown canvas with a 40 x 30 slice at unit zoom
 def _canvas(qtbot: QtBot) -> SliceCanvas:
