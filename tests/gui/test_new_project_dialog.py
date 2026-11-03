@@ -8,7 +8,7 @@ from pathlib import Path
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
-from pickmix.gui.new_project_dialog import NewProjectDialog
+from pickmix.gui.dialogs.new_project_dialog import NewProjectDialog
 
 # TestNewProjectDialog: project creation dialog
 class TestNewProjectDialog:

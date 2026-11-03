@@ -9,7 +9,7 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind, load_config
-from pickmix.gui.kind_dialog import DELETED, KindDialog
+from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 from pickmix.gui.kinds_tab import KindsTab
 from pickmix.model import PickStore, Session
 from pickmix.project import open_project
