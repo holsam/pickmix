@@ -148,3 +148,16 @@ class TestPickTab:
         qtbot.waitUntil(lambda: tab.canvas.normal_visible(near.id), timeout=5000)
         qtbot.waitUntil(lambda: 'noparent' in {tab.table.item(r, 5).text() for r in range(tab.table.rowCount())}, timeout=5000)
         assert [tab.table.item(r, 5).text() for r in range(3)] == ['', '', 'noparent']
+
+    # test_hotkeys_follow_config: keys choose the kind the config puts on them, and buttons show their number
+    def test_hotkeys_follow_config(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(hotkeys=['', 'green', 'cage'])
+        tab.refresh_kinds()
+        tab._pick_kind(0)
+        assert tab.active == 'cage'
+        tab._pick_kind(1)
+        assert tab.active == 'green'
+        tab._pick_kind(2)
+        assert tab.active == 'cage'
+        assert tab.kind_buttons['green'].text() == '2 green' and tab.kind_buttons['yellow'].text() == 'yellow'

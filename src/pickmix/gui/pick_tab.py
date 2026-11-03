@@ -144,8 +144,10 @@ class PickTab(QWidget):
         self.kind_buttons, self.kind_boxes = {}, {}
         kinds = self.session.project.config.kinds
         self.hidden &= set(kinds)
-        for i, (name, kind) in enumerate(kinds.items()):
-            button = QPushButton(f'{i + 1} {name}' if i < 9 else name)
+        # key number of each kind that has a hotkey
+        keys = {name: i + 1 for i, name in enumerate(self.session.project.config.hotkeys) if name}
+        for name, kind in kinds.items():
+            button = QPushButton(f'{keys[name]} {name}' if name in keys else name)
             button.setCheckable(True)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             button.setStyleSheet(f'QPushButton {{ border-bottom: 4px solid {kind.colour}; padding: 4px 10px; }}')
@@ -183,11 +185,11 @@ class PickTab(QWidget):
         self.active = name
         self.kind_buttons[name].setChecked(True)
 
-    # _pick_kind: choose the i-th kind by number key
+    # _pick_kind: choose the kind on the i-th hotkey
     def _pick_kind(self, i: int) -> None:
-        names = list(self.kind_buttons)
-        if i < len(names):
-            self._set_active(names[i])
+        name = self.session.project.config.hotkeys[i] if self.session is not None else ''
+        if name in self.kind_buttons:
+            self._set_active(name)
 
     # _toggle_kind: show or hide a kind's markers
     def _toggle_kind(self, name: str, shown: bool) -> None:
