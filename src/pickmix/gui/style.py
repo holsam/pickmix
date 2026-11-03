@@ -6,7 +6,7 @@ pickmix: shared GUI text levels and spacing
 from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QWidget
 
 # MARGIN, SPACING: outer margin and gap between widgets, pixels
 MARGIN: int = 8
@@ -19,6 +19,17 @@ HINT_STEP: float = -1.0
 
 # ICON_DIR: bundled icon files
 ICON_DIR: Path = Path(__file__).parent / 'icons'
+
+# _SMALL_NATIVE: widget classes whose native font is smaller than a label's
+_SMALL_NATIVE: tuple[str, ...] = ('QGroupBox', 'QToolButton', 'QHeaderView')
+
+# body_pt: point size of an ordinary label, the reference every other widget is matched to
+def body_pt() -> float:
+    return QLabel().font().pointSizeF()
+
+# standardise: give widgets with a smaller native font the body size, so all text is one size unless a level says otherwise
+def standardise(app: QApplication) -> None:
+    app.setStyleSheet(f'{", ".join(_SMALL_NATIVE)} {{ font-size: {body_pt()}pt; }}')
 
 # icon: a bundled icon by file stem, or None when its file is not there so the caller can fall back to text
 def icon(stem: str) -> QIcon | None:

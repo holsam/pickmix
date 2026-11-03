@@ -3,11 +3,16 @@ pickmix: tests for shared GUI styling
 '''
 
 # Import external dependencies
+import pytest
 from pytestqt.qtbot import QtBot
-from PySide6.QtWidgets import QLabel, QVBoxLayout
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
-from pickmix.gui.style import MARGIN, SPACING, form_label, heading, help_marker, hint, icon, tidy, title
+from pickmix.gui.kinds_tab import KindsTab
+from pickmix.gui.pick_tab import PickTab
+from pickmix.gui.project_tab import ProjectTab
+from pickmix.gui.review_tab import ReviewTab
+from pickmix.gui.style import MARGIN, SPACING, body_pt, form_label, heading, help_marker, hint, icon, standardise, tidy, title
 
 # TestStyle: shared text levels and spacing
 class TestStyle:
@@ -41,3 +46,22 @@ class TestStyle:
     # test_icon_missing: an icon with no file is None so callers can fall back to text
     def test_icon_missing(self) -> None:
         assert icon('no_such_icon') is None
+
+    # test_standardise: widgets with a smaller native font are given the body size
+    def test_standardise(self, qtbot: QtBot) -> None:
+        app = QApplication.instance()
+        standardise(app)
+        try:
+            sheet = app.styleSheet()
+            assert all(name in sheet for name in ('QGroupBox', 'QToolButton', 'QHeaderView'))
+            assert f'font-size: {body_pt()}pt' in sheet
+        finally:
+            app.setStyleSheet('')
+
+    # test_tabs_use_shared_spacing: every tab's top-level layout uses the shared margin and spacing
+    @pytest.mark.parametrize('cls', [ProjectTab, KindsTab, PickTab, ReviewTab])
+    def test_tabs_use_shared_spacing(self, qtbot: QtBot, cls: type[QWidget]) -> None:
+        tab = cls()
+        qtbot.addWidget(tab)
+        layout = tab.layout()
+        assert layout.contentsMargins().left() == MARGIN and layout.spacing() == SPACING

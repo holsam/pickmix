@@ -7,6 +7,7 @@ import pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHeaderView
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects

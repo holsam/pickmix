@@ -6,6 +6,9 @@ pickmix: collapsible section widget
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QToolButton, QVBoxLayout, QWidget
 
+# Import internal pickmix objects
+from pickmix.gui.style import body_pt
+
 # Collapsible: a header button with an arrow that shows or hides a widget
 class Collapsible(QWidget):
     # __init__: header over content, collapsed unless expanded
@@ -15,7 +18,8 @@ class Collapsible(QWidget):
         self.toggle = QToolButton()
         self.toggle.setText(text)
         self.toggle.setCheckable(True)
-        self.toggle.setStyleSheet('QToolButton { border: none; background: transparent; }')
+        # flat bold text and arrow: no button frame, no highlight when checked
+        self.toggle.setStyleSheet(f'QToolButton {{ border: none; background: transparent; font-weight: bold; font-size: {body_pt()}pt; }}')
         self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimate.registry import ESTIMATORS
-from pickmix.gui.style import form_label
+from pickmix.gui.style import form_label, tidy
 
 # DELETED: result code of the dialog when the user chose to delete the kind
 DELETED: int = 2
@@ -82,6 +82,7 @@ class KindDialog(QDialog):
         footer.addStretch()
         footer.addWidget(buttons)
         layout = QVBoxLayout(self)
+        tidy(layout)
         layout.addWidget(self._section('General', [('name', self.name_edit), ('colour', colour_row)]))
         layout.addWidget(self._section('Size', [('marker_a', self.marker_spin), ('box_a', self.box_spin)]))
         layout.addWidget(self._section('Estimation', [

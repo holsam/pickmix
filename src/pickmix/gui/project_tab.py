@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 from pickmix.config import RingParams
 from pickmix.gui.collapsible import Collapsible
 from pickmix.gui.new_project_dialog import NewProjectDialog
-from pickmix.gui.style import form_label, heading
+from pickmix.gui.style import form_label, heading, tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.project import Project, create_project, open_project
 from pickmix.utils.star import MergeResult
@@ -131,6 +131,7 @@ class ProjectTab(QWidget):
         self.stack.addWidget(start)
         self.stack.addWidget(opened)
         layout = QVBoxLayout(self)
+        tidy(layout)
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.status)
         self.open_button.clicked.connect(self._open_dialog)

@@ -16,7 +16,7 @@ from pickmix.config import HOTKEYS, Kind
 from pickmix.estimates import EstimateService
 from pickmix.gui.average_pane import AveragePane
 from pickmix.gui.kind_dialog import DELETED, KindDialog
-from pickmix.gui.style import heading, icon
+from pickmix.gui.style import heading, icon, tidy
 from pickmix.model import Session
 from pickmix.project import Project
 
@@ -75,6 +75,7 @@ class KindsTab(QWidget):
         self.status = QLabel()
         self.average = AveragePane()
         layout = QVBoxLayout(self)
+        tidy(layout)
         layout.addLayout(top, 1)
         layout.addWidget(self.status)
         layout.addWidget(self.average)

@@ -17,7 +17,7 @@ from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, title
+from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -117,6 +117,7 @@ class PickTab(QWidget):
         bottom.addLayout(picks_head)
         bottom.addWidget(self.table)
         layout = QVBoxLayout(self)
+        tidy(layout)
         layout.addWidget(self.title)
         layout.addWidget(self.help)
         layout.addSpacing(8)

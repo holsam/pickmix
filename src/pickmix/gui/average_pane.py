@@ -12,6 +12,7 @@ from pickmix.average import AverageResult, average_kind
 from pickmix.estimates import EstimateService
 from pickmix.export import Item
 from pickmix.gui.images import to_pixmap
+from pickmix.gui.style import tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.model import Session
 
@@ -50,6 +51,7 @@ class AveragePane(QGroupBox):
         images.addWidget(self.results_list)
         images.addStretch()
         body = QVBoxLayout(self)
+        tidy(body)
         body.addLayout(controls)
         body.addWidget(self.status)
         body.addLayout(images)
