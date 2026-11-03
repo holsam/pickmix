@@ -3,7 +3,10 @@ pickmix: shared GUI text levels and spacing
 '''
 
 # Import external dependencies
-from PySide6.QtWidgets import QLabel, QLayout
+from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLayout, QWidget
 
 # MARGIN, SPACING: outer margin and gap between widgets, pixels
 MARGIN: int = 8
@@ -13,6 +16,40 @@ SPACING: int = 6
 TITLE_STEP: float = 4.0
 HEADING_STEP: float = 1.0
 HINT_STEP: float = -1.0
+
+# ICON_DIR: bundled icon files
+ICON_DIR: Path = Path(__file__).parent / 'icons'
+
+# icon: a bundled icon by file stem, or None when its file is not there so the caller can fall back to text
+def icon(stem: str) -> QIcon | None:
+    path = ICON_DIR / f'{stem}.svg'
+    return QIcon(str(path)) if path.exists() else None
+
+# help_marker: the question mark icon, or (?) without its file, explaining itself on hover
+def help_marker(text: str) -> QLabel:
+    label = QLabel()
+    help_icon = icon('help')
+    if help_icon is None:
+        label.setText('(?)')
+    else:
+        label.setPixmap(help_icon.pixmap(16, 16))
+    label.setToolTip(text)
+    label.setCursor(Qt.CursorShape.WhatsThisCursor)
+    return label
+
+# form_label: "Title (?):" for the label column of a form, the marker explaining the field on hover
+def form_label(title: str, tip: str) -> QWidget:
+    label = QLabel(title)
+    label.setToolTip(tip)
+    box = QWidget()
+    row = QHBoxLayout(box)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(4)
+    row.addWidget(label)
+    row.addWidget(help_marker(tip))
+    row.addWidget(QLabel(':'))
+    row.addStretch()
+    return box
 
 # tidy: apply the shared margin and spacing to a layout
 def tidy(layout: QLayout) -> None:
