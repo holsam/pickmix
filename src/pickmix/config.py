@@ -8,6 +8,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Literal
 
+# HOTKEYS: number of hotkeys, keys 1 to 9
+HOTKEYS: int = 9
+
 # Kind: one class of particle
 class Kind(BaseModel):
     # displayed marker diameter, Angstrom
@@ -66,11 +69,14 @@ class Config(BaseModel):
     # volume read for display, estimation and extraction; falls back to raw when a tomogram has no denoised pair
     source: Literal['raw', 'denoised'] = 'denoised'
     ring: RingParams = Field(default_factory=RingParams)
-    # table order sets the 1 to 9 hotkeys
     kinds: dict[str, Kind] = Field(default_factory=_default_kinds)
+    # kind chosen by each of the keys 1 to 9, '' for an unused key
+    hotkeys: list[str] = Field(default_factory=list)
 
     # replace: validated copy with some fields swapped
     def replace(self, **changes: object) -> 'Config':
+        if 'kinds' in changes and 'hotkeys' not in changes:
+            changes = {**changes, 'hotkeys': []}
         return Config.model_validate({**self.model_dump(), **changes})
 
     # _names: kind names become folder names, so keep them plain
@@ -83,6 +89,21 @@ class Config(BaseModel):
             if not re.fullmatch(r'[A-Za-z0-9_]+', name):
                 raise ValueError(f'kind name {name!r} may only use letters, digits and underscores')
         return kinds
+
+    # _fill_hotkeys: fill the default, pad to nine slots, and check each names a known kind and is used once
+    @model_validator(mode='after')
+    def _fill_hotkeys(self) -> 'Config':
+        keys = self.hotkeys or [*self.kinds][:HOTKEYS]
+        if len(keys) > HOTKEYS:
+            raise ValueError(f'at most {HOTKEYS} hotkeys, got {len(keys)}')
+        used = [k for k in keys if k]
+        for name in used:
+            if name not in self.kinds:
+                raise ValueError(f'hotkey names unknown kind {name!r}')
+        if len(set(used)) != len(used):
+            raise ValueError('a kind may only be on one hotkey')
+        self.hotkeys = [*keys, *[''] * (HOTKEYS - len(keys))]
+        return self
 
     # _relations: parents must exist and form no cycle, and a passthrough kind needs a box
     @model_validator(mode='after')
