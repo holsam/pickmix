@@ -9,11 +9,11 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QDockWidget, QLineEdit, QMainWindow, QTabWidget
 
 # Import internal pickmix objects
-from pickmix.gui.kinds_tab import KindsTab
+from pickmix.gui.tabs.kinds_tab import KindsTab
 from pickmix.estimates import EstimateService
-from pickmix.gui.pick_tab import PickTab
-from pickmix.gui.project_tab import ProjectTab
-from pickmix.gui.review_tab import ReviewTab
+from pickmix.gui.tabs.pick_tab import PickTab
+from pickmix.gui.tabs.project_tab import ProjectTab
+from pickmix.gui.tabs.review_tab import ReviewTab
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.loader import Loader
 from pickmix.model import Session

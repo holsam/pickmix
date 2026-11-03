@@ -9,7 +9,7 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import load_config
-from pickmix.gui.project_tab import ProjectTab
+from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.project import open_project
 
 # TestProjectTab: project tab
