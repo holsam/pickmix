@@ -14,9 +14,10 @@ from PySide6.QtWidgets import (
 
 # Import internal pickmix objects
 from pickmix.estimates import EstimateService
-from pickmix.gui.canvas import FitView, Marker, SliceCanvas
 from pickmix.geometry import Parent, match_parents
+from pickmix.gui.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.workers import post
+from pickmix.gui.style import hint, title
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -42,7 +43,8 @@ class PickTab(QWidget):
         self._first_slice = False
         self._range = (0.0, 1.0)
         self.canvas = SliceCanvas()
-        self.title = QLabel()
+        self.title = title()
+        self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram.')
         self.status = QLabel()
         self.kind_row = QHBoxLayout()
         self.kind_buttons: dict[str, QPushButton] = {}
@@ -94,6 +96,7 @@ class PickTab(QWidget):
         middle.addLayout(side)
         layout = QVBoxLayout(self)
         layout.addWidget(self.title)
+        layout.addWidget(self.help)
         layout.addLayout(self.kind_row)
         layout.addLayout(middle, 1)
         layout.addLayout(z_row)
@@ -205,7 +208,7 @@ class PickTab(QWidget):
         name = self.session.current
         self.opened = None
         self.canvas.clear()
-        self.title.setText(f'{name}  ({self.session.index + 1}/{len(self.session.names)})   Enter next, Shift+Enter back')
+        self.title.setText(name)
         self.status.setText(f'Loading {name}...')
         self._fill_table()
         self._timer = Timer(f'switch to {name}')

@@ -172,3 +172,9 @@ class TestPickTab:
         assert session.store.all() == []
         tab._pick_kind(0)
         assert tab.active is None
+
+    # test_title_is_name_only: the title is the tomogram name, with the navigation help kept below
+    def test_title_is_name_only(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        assert tab.title.text() == session.current and tab.title.font().bold()
+        assert 'Enter' in tab.help.text()
