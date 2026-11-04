@@ -13,7 +13,7 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
-from pickmix.gui.main_window import MainWindow
+from pickmix.gui.main_window import PROJECT_SIZE, WELCOME_SIZE, MainWindow
 from pickmix.project import open_project
 
 # TestMainWindow: main window
@@ -88,6 +88,48 @@ class TestMainWindow:
         window.project_tab.close_button.click()
         assert window.project is None and window.session is None
         assert [window.tabs.isTabEnabled(i) for i in range(4)] == [True, False, False, False]
+
+    # test_window_size_follows_page: small on the welcome page, default size once a project opens, a hand size survives a reload, small again on close
+    def test_window_size_follows_page(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        size = lambda: (window.width(), window.height())
+        assert size() == WELCOME_SIZE
+        project = open_project(make_config())
+        window.project_tab.set_project(project)
+        qtbot.waitUntil(lambda: size() == PROJECT_SIZE or window.screen().availableGeometry().height() < PROJECT_SIZE[1], timeout=3000)
+        window.resize(1200, 800)
+        window.project_tab.set_project(project)
+        assert size() == (1200, 800)
+        window.project_tab.close_button.click()
+        qtbot.waitUntil(lambda: size() == WELCOME_SIZE, timeout=3000)
+
+    # test_resize_keeps_centre_on_screen: the window grows and shrinks about its centre and stays inside its screen
+    def test_resize_keeps_centre_on_screen(self, qtbot: QtBot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        area = window.screen().availableGeometry()
+        frame = window.frameGeometry()
+        frame.moveCenter(area.center())
+        window.move(frame.topLeft())
+        centre = window.frameGeometry().center()
+        window._resize_about_centre((520, 300))
+        qtbot.waitUntil(lambda: window.width() == 520, timeout=3000)
+        assert (window.frameGeometry().center() - centre).manhattanLength() <= 2
+        window.move(area.right() - 100, area.bottom() - 100)
+        window._resize_about_centre(PROJECT_SIZE)
+        qtbot.wait(400)
+        assert window.frameGeometry().left() >= area.left() and window.frameGeometry().top() >= area.top()
+        assert window.frameGeometry().right() <= area.right() or window.frameGeometry().width() > area.width()
+
+    # test_resize_is_instant_before_show: a window not yet shown takes its size at once
+    def test_resize_is_instant_before_show(self, qtbot: QtBot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window._resize_about_centre((600, 350))
+        assert (window.width(), window.height()) == (600, 350)
 
     # test_no_kinds: a project with every kind deleted still opens, and every tab copes
     def test_no_kinds(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:

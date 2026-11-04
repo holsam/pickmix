@@ -4,9 +4,9 @@ pickmix: main GUI window
 
 # Import external dependencies
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QLineEdit, QMainWindow, QTabWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QLayout, QMainWindow, QTabWidget
 
 # Import internal pickmix objects
 from pickmix.estimates import EstimateService
@@ -19,13 +19,22 @@ from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import Project
 
+# WELCOME_SIZE, PROJECT_SIZE: window size in pixels on the welcome page and once a project is open
+WELCOME_SIZE: tuple[int, int] = (500, 280)
+PROJECT_SIZE: tuple[int, int] = (1360, 780)
+
+# RESIZE_MS: milliseconds the window takes to change size
+RESIZE_MS: int = 220
+
+# WELCOME_MIN: smallest the window may be dragged to on the welcome page
+WELCOME_MIN: tuple[int, int] = (500, 280)
+
 # MainWindow: tabs in workflow order; everything after Project waits for usable tomograms
 class MainWindow(QMainWindow):
     # __init__: build the tabs
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle('pickmix')
-        self.resize(1400, 900)
         self.project: Project | None = None
         self.session: Session | None = None
         self.loader: Loader | None = None
@@ -42,6 +51,12 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.export_tab, 'Export')
         self._set_enabled(session=False)
         self.setCentralWidget(self.tabs)
+        # the window's smallest size is set by hand (see _fit_welcome), not taken from the pages, which are all larger than the welcome page
+        self.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        self._fit_welcome(True)
+        self._resizing = QPropertyAnimation(self, b'geometry', self)
+        self._resizing.setDuration(RESIZE_MS)
+        self._resizing.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self._restart = QTimer(self)
         self._restart.setSingleShot(True)
         self._restart.setInterval(500)
@@ -56,6 +71,7 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence(str(i)), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(lambda i=i: self._hotkey(i - 1))
         for key in ('Delete', 'Backspace'):
             QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(self._delete_pick)
+        self.resize(*WELCOME_SIZE)
 
     # open_config: open a config.toml in the Project tab
     def open_config(self, path: Path) -> None:
@@ -95,6 +111,30 @@ class MainWindow(QMainWindow):
         if self._picking():
             self.pick_tab.delete_selected()
 
+    # _resize_about_centre: glide to a new size keeping the window's centre where it is, nudged back onto its screen; no glide before the window is shown
+    def _resize_about_centre(self, size: tuple[int, int]) -> None:
+        self._resizing.stop()
+        frame, inner = self.frameGeometry(), self.geometry()
+        # the frame is the window plus its title bar and borders
+        wide, high = frame.width() - inner.width(), frame.height() - inner.height()
+        target = QRect(frame.topLeft(), QSize(size[0] + wide, size[1] + high))
+        target.moveCenter(frame.center())
+        area = self.screen().availableGeometry()
+        # keep the whole frame on screen (top-left wins if the frame is bigger than the screen)
+        x = max(area.left(), min(target.left(), area.right() - target.width() + 1))
+        y = max(area.top(), min(target.top(), area.bottom() - target.height() + 1))
+        end = QRect(x + inner.left() - frame.left(), y + inner.top() - frame.top(), size[0], size[1])
+        if not self.isVisible():
+            self.setGeometry(end)
+            return
+        self._resizing.setStartValue(inner)
+        self._resizing.setEndValue(end)
+        self._resizing.start()
+
+    # _fit_welcome: the smallest the window may be: small on the welcome page, as small as the tabs need once a project is open
+    def _fit_welcome(self, welcome: bool) -> None:
+        self.setMinimumSize(*WELCOME_MIN) if welcome else self.setMinimumSize(self.tabs.minimumSizeHint())
+
     # _set_enabled: Project is always usable; Pick, Review and Export need a session
     def _set_enabled(self, *, session: bool) -> None:
         for tab in (self.pick_tab, self.review_tab, self.export_tab):
@@ -102,6 +142,10 @@ class MainWindow(QMainWindow):
 
     # _on_project: build the session and loader for a project and unlock the tabs
     def _on_project(self, project: Project) -> None:
+        # only the first project after the welcome page resizes; reloads and settings restarts keep the user's size
+        if self.project is None:
+            self._fit_welcome(False)
+            self._resize_about_centre(PROJECT_SIZE)
         self.project = project
         self.setWindowTitle(f'pickmix • {project.display_name}')
         self._shutdown()
@@ -132,6 +176,8 @@ class MainWindow(QMainWindow):
         self._shutdown()
         self.project = None
         self.setWindowTitle('pickmix')
+        self._fit_welcome(True)
+        self._resize_about_centre(WELCOME_SIZE)
         self.kinds_pane.set_session(None, None)
         self.export_tab.clear()
         self._set_enabled(session=False)
