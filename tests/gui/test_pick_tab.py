@@ -192,11 +192,41 @@ class TestPickTab:
         tab.pick_kind(1)
         assert tab.active == 'yellow'
 
+    # test_auto_and_manual: Auto starts ticked, a manual change unticks it and ticking it restores the tomogram's limits
+    def test_auto_and_manual(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.auto_box.isChecked() and tab.invert_box.isChecked() is False
+        auto = tab.contrast.values()
+        tab.contrast.set_values(auto[0] + 10, auto[1] - 10, emit=True)
+        assert not tab.auto_box.isChecked() and tab.contrast.values() != auto
+        tab.auto_box.setChecked(True)
+        assert tab.contrast.values() == auto and tab.brightness.value() == 0
+
+    # test_brightness_shifts_window: positive brightness lowers the window by that share of its width
+    def test_brightness_shifts_window(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        lo, hi = tab._window()
+        tab.brightness.setValue(10)
+        new_lo, new_hi = tab._window()
+        assert not tab.auto_box.isChecked()
+        assert abs((lo - new_lo) - 0.1 * (hi - lo)) < 1e-6 and abs((new_hi - new_lo) - (hi - lo)) < 1e-6
+
+    # test_manual_window_kept_across_tomograms: with Auto off, the next tomogram opens with the same pixel-value window
+    def test_manual_window_kept_across_tomograms(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup(THREE)
+        low, high = tab.contrast.values()
+        tab.contrast.set_values(low + 50, high - 50, emit=True)
+        raw = tab._raw_window()
+        session.step(1)
+        qtbot.waitUntil(lambda: tab.opened is not None and tab.opened.name == 'Position_1_3', timeout=5000)
+        new = tab._raw_window()
+        assert abs(new[0] - raw[0]) < 2 and abs(new[1] - raw[1]) < 2
+
     # test_layout: Z is a vertical scrollbar and image and overlay controls sit in the settings pane
     def test_layout(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, _ = setup()
-        assert tab.z_slider.orientation() == Qt.Orientation.Vertical
-        for widget in (tab.lo_slider, tab.hi_slider, tab.invert_box, tab.auto_button, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box):
+        assert tab.z_slider.orientation() == Qt.Orientation.Vertical and tab.settings.width() <= 220
+        for widget in (tab.contrast, tab.brightness, tab.auto_box, tab.invert_box, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box, *tab.kind_buttons.values()):
             assert tab.settings.isAncestorOf(widget)
         assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
         header = tab.table.horizontalHeader()
@@ -225,16 +255,6 @@ class TestPickTab:
         assert tab.table.horizontalHeaderItem(0).text() == '' and tab.table.cellWidget(0, 0) is not None
         qtbot.waitUntil(lambda: tab.table.cellWidget(0, 0).status == 'ok', timeout=5000)
         assert tab.status.text() == ''
-
-    # test_layout: Z is a vertical scrollbar; image, view and kind controls sit in the narrow settings pane
-    def test_layout(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
-        tab, _ = setup()
-        assert tab.z_slider.orientation() == Qt.Orientation.Vertical and tab.settings.width() <= 220
-        for widget in (tab.lo_slider, tab.hi_slider, tab.invert_box, tab.auto_button, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box, *tab.kind_buttons.values()):
-            assert tab.settings.isAncestorOf(widget)
-        assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
-        header = tab.table.horizontalHeader()
-        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed and header.sectionResizeMode(1) == QHeaderView.ResizeMode.ResizeToContents
 
     # test_view_toggles: each overlay toggle starts shown, hides its overlay and shows a different eye when hidden
     def test_view_toggles(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:

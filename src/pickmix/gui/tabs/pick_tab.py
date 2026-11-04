@@ -16,6 +16,7 @@ from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import icon
+from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import StatusBadge, fit_status
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
@@ -61,10 +62,11 @@ class PickTab(QWidget):
         self.z_slider = QScrollBar(Qt.Orientation.Vertical)
         self.z_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.z_label = QLabel()
-        self.lo_slider = QSlider(Qt.Orientation.Horizontal)
-        self.hi_slider = QSlider(Qt.Orientation.Horizontal)
-        for slider in (self.lo_slider, self.hi_slider):
-            slider.setRange(0, _STEPS)
+        self.contrast = RangeSlider(0, _STEPS)
+        self.brightness = QSlider(Qt.Orientation.Horizontal)
+        self.brightness.setRange(-100, 100)
+        self.auto_box = QCheckBox('Auto')
+        self.auto_box.setChecked(True)
         self.rings_box = view_toggle('Rings')
         self.boxes_box = view_toggle('Boxes')
         self.normals_box = view_toggle('Normals')
@@ -72,7 +74,6 @@ class PickTab(QWidget):
             box.setChecked(True)
             box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.invert_box = QCheckBox('Invert')
-        self.auto_button = QPushButton('Auto')
         self.fit_button = QPushButton('Fit')
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(['', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
@@ -92,19 +93,19 @@ class PickTab(QWidget):
         else:
             self.delete_button.setIcon(trash)
         self.delete_button.setToolTip('Delete the selected pick (Delete)')
-        for button in (self.auto_button, self.fit_button, self.delete_button):
+        for button in (self.fit_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._row_ids: list[int] = []
         # settings pane on the right: image controls, what to show, then the kinds
         image = QGroupBox('Image')
         image_form = QFormLayout(image)
-        image_form.addRow('Contrast low', self.lo_slider)
-        image_form.addRow('Contrast high', self.hi_slider)
-        image_form.addRow(self.invert_box)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.auto_button)
-        buttons.addWidget(self.fit_button)
-        image_form.addRow(buttons)
+        image_form.addRow('Contrast', self.contrast)
+        image_form.addRow('Brightness', self.brightness)
+        checks = QHBoxLayout()
+        checks.addWidget(self.auto_box)
+        checks.addWidget(self.invert_box)
+        image_form.addRow(checks)
+        image_form.addRow(self.fit_button)
         view = QGroupBox('View')
         view_grid = QGridLayout(view)
         for i, box in enumerate((self.rings_box, self.boxes_box, self.normals_box)):
@@ -163,13 +164,13 @@ class PickTab(QWidget):
         layout.addWidget(self.status)
         self.set_tomo_visible(True)
         self.z_slider.valueChanged.connect(self._show_z)
-        self.lo_slider.valueChanged.connect(self._on_window)
-        self.hi_slider.valueChanged.connect(self._on_window)
+        self.contrast.valueChanged.connect(self._edited)
+        self.brightness.valueChanged.connect(self._edited)
         self.invert_box.toggled.connect(self._on_window)
+        self.auto_box.toggled.connect(self._auto_toggled)
         self.rings_box.toggled.connect(self._on_overlay)
         self.boxes_box.toggled.connect(self._on_overlay)
         self.normals_box.toggled.connect(self._on_overlay)
-        self.auto_button.clicked.connect(self._auto)
         self.fit_button.clicked.connect(self.canvas.fit)
         self.delete_button.clicked.connect(self.delete_selected)
         self.canvas.add_requested.connect(self._add)
@@ -313,12 +314,16 @@ class PickTab(QWidget):
             return
         if self._timer:
             self._timer.lap('opened and contrast')
+        # Auto takes the tomogram's own limits; with Auto off the window you set is kept in pixel values
+        keep = None if self.auto_box.isChecked() else self._raw_window()
         lo, hi = self.opened.limits
         span = (hi - lo) or 1.0
         self._range = (lo - 2 * span, hi + 2 * span)
         depth = self.opened.vol.shape[0]
-        self._quiet(self.lo_slider, self._slider_pos(lo))
-        self._quiet(self.hi_slider, self._slider_pos(hi))
+        low, high = self.opened.limits if keep is None else keep
+        self.contrast.set_values(self._slider_pos(low), self._slider_pos(high))
+        if keep is None:
+            self._quiet(self.brightness, 0)
         self.z_slider.blockSignals(True)
         self.z_slider.setRange(0, depth - 1)
         self.z_slider.setValue(depth // 2)
@@ -375,25 +380,45 @@ class PickTab(QWidget):
                 self._timer.lap('first slice shown')
         self.loader.warm_around(self.opened.name, self.z)
 
-    # _window: contrast limits from the sliders
+    # _raw_window: contrast limits from the range slider, before brightness
+    def _raw_window(self) -> tuple[float, float]:
+        low, high = self.contrast.values()
+        return self._slider_value(low), self._slider_value(high)
+
+    # _window: the window the canvas uses: the contrast limits moved down by the brightness, a percentage of their width
     def _window(self) -> tuple[float, float]:
-        lo, hi = (self._slider_value(s.value()) for s in (self.lo_slider, self.hi_slider))
+        lo, hi = self._raw_window()
+        shift = self.brightness.value() / 100 * (hi - lo)
+        lo, hi = lo - shift, hi - shift
         return (lo, hi) if hi > lo else (lo, lo + 1e-6)
 
     # _on_overlay: fit rings or boxes switched
     def _on_overlay(self) -> None:
         self.canvas.set_overlay(rings=self.rings_box.isChecked(), boxes=self.boxes_box.isChecked(), normals=self.normals_box.isChecked())
 
-    # _on_window: contrast or invert changed
-    def _on_window(self) -> None:
+    # _on_window: contrast, brightness or invert changed
+    def _on_window(self, *_args: object) -> None:
         lo, hi = self._window()
         self.canvas.set_window(lo, hi, invert=self.invert_box.isChecked())
 
-    # _auto: contrast back to the limits found when the tomogram opened
+    # _edited: contrast or brightness changed by hand, so Auto goes off
+    def _edited(self, *_args: object) -> None:
+        if self.auto_box.isChecked():
+            self.auto_box.blockSignals(True)
+            self.auto_box.setChecked(False)
+            self.auto_box.blockSignals(False)
+        self._on_window()
+
+    # _auto_toggled: ticking Auto goes back to the limits found when the tomogram opened
+    def _auto_toggled(self, on: bool) -> None:
+        if on:
+            self._auto()
+
+    # _auto: contrast back to the limits found when the tomogram opened, brightness back to zero
     def _auto(self) -> None:
         if self.opened is not None:
-            self._quiet(self.lo_slider, self._slider_pos(self.opened.limits[0]))
-            self._quiet(self.hi_slider, self._slider_pos(self.opened.limits[1]))
+            self.contrast.set_values(self._slider_pos(self.opened.limits[0]), self._slider_pos(self.opened.limits[1]))
+            self._quiet(self.brightness, 0)
             self._on_window()
 
     # _slider_pos: slider position for a pixel value
