@@ -13,7 +13,7 @@ from pickmix.gui.panes.kinds_pane import KindsPane
 from pickmix.gui.panes.settings_pane import SettingsPane
 from pickmix.gui.panes.tomograms_pane import TomogramsPane
 from pickmix.gui.panes.welcome_pane import WelcomePane
-from pickmix.gui.style import hint, icon_button, tidy, title
+from pickmix.gui.style import hint, icon_button, tidy, title, transparent_scroll
 from pickmix.gui.workers import run_in_background
 from pickmix.project import Project, create_project, open_project
 from pickmix.utils.star import MergeResult
@@ -36,8 +36,8 @@ class ProjectTab(QWidget):
         self.welcome = WelcomePane()
         self.open_button = self.welcome.open_button
         self.new_button = self.welcome.new_button
-        self.reload_button = icon_button('cached', 'Reload', 'Reload config.toml and rescan the tomograms')
-        self.close_button = icon_button('logout', 'Close', 'Close the project')
+        self.reload_button = icon_button('refresh', 'Reload', 'Reload config.toml and rescan the tomograms', size=28)
+        self.close_button = icon_button('logout', 'Close', 'Close the project', size=28)
         self.title_label = title()
         self.path_label = hint()
         self.status = QLabel()
@@ -46,9 +46,9 @@ class ProjectTab(QWidget):
         self.settings_pane = SettingsPane()
         settings_scroll = QScrollArea()
         settings_scroll.setWidgetResizable(True)
-        settings_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         settings_scroll.setWidget(self.settings_pane)
+        transparent_scroll(settings_scroll)
         settings_scroll.setMinimumWidth(self.settings_pane.minimumWidth() + 24)
         # top bar: name and path on the left, reload and close on the right
         names = QVBoxLayout()
@@ -60,8 +60,8 @@ class ProjectTab(QWidget):
         top.addWidget(self.reload_button, alignment=Qt.AlignmentFlag.AlignTop)
         top.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignTop)
         columns = QHBoxLayout()
-        columns.addWidget(self.tomograms, 3)
-        columns.addWidget(self.kinds_pane, 2)
+        columns.addWidget(self.tomograms, 4)
+        columns.addWidget(self.kinds_pane, 1)
         columns.addWidget(settings_scroll, 0)
         opened = QWidget()
         opened_layout = QVBoxLayout(opened)

@@ -7,7 +7,7 @@ import html
 from pydantic import ValidationError
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+    QGridLayout, QHBoxLayout, QLabel, QMessageBox,
     QScrollArea, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from pickmix.config import Kind
 from pickmix.estimates import EstimateService
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
-from pickmix.gui.style import heading, icon
+from pickmix.gui.style import heading, icon, icon_button, transparent_scroll
 from pickmix.model import Session
 from pickmix.project import Project
 
@@ -35,7 +35,7 @@ class KindsPane(QWidget):
         self.service: EstimateService | None = None
         self.details: dict[str, QLabel] = {}
         self.edit_buttons: dict[str, QToolButton] = {}
-        self.add_button = QPushButton('Add')
+        self.add_button = icon_button('add', 'Add', 'Add a kind')
         self.add_button.clicked.connect(self.add_kind)
         self.cards: list[QWidget] = []
         self._columns = 0
@@ -46,6 +46,7 @@ class KindsPane(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setWidget(holder)
+        transparent_scroll(self.scroll)
         self.scroll.setMinimumHeight(220)
         self.scroll.viewport().installEventFilter(self)
         head = QHBoxLayout()

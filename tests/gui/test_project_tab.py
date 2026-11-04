@@ -9,6 +9,7 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import load_config
+from pickmix.gui.style import MEDIUM_PAD
 from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.project import open_project
 
@@ -22,6 +23,15 @@ class TestProjectTab:
         tab.set_project(open_project(path))
         assert tab.title_label.text() == path.parent.name and tab.path_label.text() == str(path.resolve())
         assert tab.title_label.font().bold() and tab.reload_button.toolTip() and tab.close_button.toolTip()
+
+    # test_button_icons: reload and close are medium icon buttons, and Add has an icon
+    def test_button_icons(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        tab.set_project(open_project(make_config()))
+        for button in (tab.reload_button, tab.close_button):
+            assert not button.icon().isNull() and button.width() == button.height() == 28 + MEDIUM_PAD
+        assert not tab.kinds_pane.add_button.icon().isNull()
 
     # test_table: usable tomograms are listed and counted
     def test_table(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
