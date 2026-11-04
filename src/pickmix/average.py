@@ -18,6 +18,9 @@ from pickmix.utils.io import Tomogram, load_volume
 # _MONTAGE_MAX: most boxes shown in the montage, spread evenly over the picks
 _MONTAGE_MAX: int = 64
 
+# MONTAGE_PAD: pixels of padding around every cell of the montage
+MONTAGE_PAD: int = 2
+
 # AverageResult: normalised 2D images, ready to show; overall and per-tomogram means, and the montage
 @dataclass(frozen=True)
 class AverageResult:
@@ -28,6 +31,11 @@ class AverageResult:
     montage: np.ndarray
     per_tomogram: dict[str, np.ndarray]
     folder: Path
+    # montage geometry and label
+    grid: int
+    pad: int
+    labels: list[str]
+
 
 # average_kind: cut a box at every item, project the central slab of each along z, normalise it, and average per tomogram and overall; PNGs go to out_dir/average/<kind>/
 def average_kind(
@@ -42,6 +50,8 @@ def average_kind(
     half = min(max(round(kind.marker_a / 2 / px), 1), box // 2)
     centre = box // 2
     images: dict[str, list[np.ndarray]] = {}
+    numbers = {t: i + 1 for i, t in enumerate(tomos)}
+    origins: list[str] = []
     for tomogram in dict.fromkeys(p.tomogram for p, _ in items):
         vol = load_volume(tomos[tomogram], source=config.source)
         for p, f in items:
@@ -50,16 +60,22 @@ def average_kind(
             cube = crop_box(vol, (round(f.z), round(f.y), round(f.x)), box)
             img = cube[centre - half : centre + half + 1].mean(axis=0)
             images.setdefault(tomogram, []).append((img - img.mean()) / (img.std() or 1.0))
+            origins.append(f'{numbers[tomogram]}/{len(images[tomogram])}')
         log(f'{name} {tomogram}: {len(images[tomogram])} boxes')
     everything = [img for imgs in images.values() for img in imgs]
     chosen = np.linspace(0, len(everything) - 1, min(len(everything), _MONTAGE_MAX)).astype(int)
     grid = math.ceil(math.sqrt(len(chosen)))
     result = AverageResult(
-        name, len(everything), box,
+        name, 
+        len(everything), 
+        box,
         np.mean(everything, axis=0),
-        montage(np.stack([everything[i] for i in chosen]), grid_shape=(grid, grid), padding_width=2),
+        montage(np.stack([everything[i] for i in chosen]), grid_shape=(grid, grid), padding_width=MONTAGE_PAD),
         {t: np.mean(imgs, axis=0) for t, imgs in images.items()},
         config.out_dir / 'average' / name,
+        grid, 
+        MONTAGE_PAD, 
+        [origins[i] for i in chosen],
     )
     result.folder.mkdir(parents=True, exist_ok=True)
     for stale in result.folder.glob('*.png'):
