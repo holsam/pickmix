@@ -20,7 +20,7 @@ from pickmix.model import Session
 from pickmix.project import Project
 
 # _CARD_WIDTH: narrowest a kind's block gets, in pixels, before the grid drops a column
-_CARD_WIDTH: int = 260
+_CARD_WIDTH: int = 180
 
 # KindsPane: the kinds as a list with an edit button each, and one dropdown per hotkey
 class KindsPane(QWidget):
