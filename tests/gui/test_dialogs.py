@@ -1,13 +1,17 @@
 '''
-pickmix: tests for the kind dialog
+pickmix: tests for gui dialogs
 '''
 
 # Import external dependencies
+import pytest
+from pathlib import Path
+from PySide6.QtWidgets import QFormLayout, QLabel
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
+from pickmix.gui.dialogs.new_project_dialog import NewProjectDialog
 
 # _ok: a check that accepts anything
 def _ok(_name: str, _kind: Kind) -> str | None:
@@ -98,3 +102,52 @@ class TestKindDialog:
         dialog.name_edit.setText('cage')
         dialog.accept()
         assert 'already exists' in dialog.error.text() and dialog.result() == 0
+
+# TestNewProjectDialog: project creation dialog
+class TestNewProjectDialog:
+    # test_values: filled fields become create_project arguments
+    def test_values(self, qtbot: QtBot) -> None:
+        dlg = NewProjectDialog()
+        qtbot.addWidget(dlg)
+        dlg.add_run('r1', '/data/p1')
+        dlg.project_dir.edit.setText('/proj')
+        dlg.raw_dir.edit.setText('/raw')
+        values = dlg.values()
+        assert values['runs'] == [('r1', Path('/data/p1'))]
+        assert values['project_dir'] == Path('/proj')
+        assert values['denoised_dir'] is None
+        assert values['denoised_suffix'] == '.denoised'
+        assert values['name'] is None
+
+    # test_validation: missing runs and directories give readable errors
+    def test_validation(self, qtbot: QtBot) -> None:
+        dlg = NewProjectDialog()
+        qtbot.addWidget(dlg)
+        with pytest.raises(ValueError, match='at least one run'):
+            dlg.values()
+        dlg.add_run('r1', '/data/p1')
+        with pytest.raises(ValueError, match='project directory'):
+            dlg.values()
+        dlg.accept()
+        assert 'project directory' in dlg.error.text()
+        assert dlg.result() == 0
+
+    # test_name: a typed name is passed on, the placeholder follows the directory
+    def test_name(self, qtbot: QtBot) -> None:
+        dlg = NewProjectDialog()
+        qtbot.addWidget(dlg)
+        dlg.add_run('r1', '/data/p1')
+        dlg.project_dir.edit.setText('/work/cages')
+        dlg.raw_dir.edit.setText('/raw')
+        assert dlg.name.placeholderText() == 'cages' and dlg.values()['name'] is None
+        dlg.name.setText('  Cage run  ')
+        assert dlg.values()['name'] == 'Cage run'
+
+    # test_tooltips: every field has a label that explains itself
+    def test_tooltips(self, qtbot: QtBot) -> None:
+        dlg = NewProjectDialog()
+        qtbot.addWidget(dlg)
+        form = dlg.findChild(QFormLayout)
+        for row in range(form.rowCount()):
+            assert form.itemAt(row, QFormLayout.ItemRole.LabelRole).widget().findChildren(QLabel)[1].toolTip()
+        assert dlg.runs.toolTip()
