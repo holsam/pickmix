@@ -21,7 +21,7 @@ from pickmix.project import Project
 
 # WELCOME_SIZE, PROJECT_SIZE: window size in pixels on the welcome page and once a project is open
 WELCOME_SIZE: tuple[int, int] = (500, 280)
-PROJECT_SIZE: tuple[int, int] = (1360, 780)
+PROJECT_SIZE: tuple[int, int] = (1440, 880)
 
 # RESIZE_MS: milliseconds the window takes to change size
 RESIZE_MS: int = 220

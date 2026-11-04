@@ -105,9 +105,10 @@ class TestAveragePane:
         widget.run()
         assert widget.spinner.status == 'running' and not widget.run_button.isEnabled()
         qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
-        assert widget.results_list.count() == 2 and not widget.mean_label.pixmap().isNull() and not widget.montage_label.pixmap().isNull()
+        assert widget.results_table.rowCount() == 2 and not widget.mean_label.pixmap().isNull() and not widget.montage_label.pixmap().isNull()
         assert widget.spinner.status is None and widget.run_button.isEnabled() and widget.save_button.isEnabled()
-        assert (session.project.config.out_dir / 'average' / 'yellow' / 'overall_mean.png').exists()
+        # averaging alone writes nothing
+        assert not (session.project.config.out_dir / 'average' / 'yellow' / 'overall_mean.png').exists()
 
     # test_run_without_estimates: nothing to average is said in a message, not raised
     def test_run_without_estimates(self, pane: tuple[AveragePane, Session, EstimateService], capsys) -> None:
@@ -115,17 +116,50 @@ class TestAveragePane:
         widget.run()
         assert 'No picks' in capsys.readouterr().out and widget.spinner.status is None
 
-    # test_save_montage_writes_two_files: plain and labelled PNGs of the same size, the labelled one different
-    def test_save_montage_writes_two_files(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+    # _ran: a pane that has averaged one pick
+    def _ran(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> AveragePane:
         widget, session, service = pane
-        assert widget.save_montage() == []
         pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
         qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
         widget.refresh_kinds()
         widget.run()
         qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
-        plain, labelled = (QImage(p) for p in widget.save_montage())
+        return widget
+
+    # test_list_shows_counts: row 0 is the overall count, each other row a tomogram with its own count, and choosing a row changes the mean
+    def test_list_shows_counts(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+        widget = self._ran(qtbot, pane)
+        r = widget.result
+        assert widget.results_table.item(0, 0).text() == 'overall' and widget.results_table.item(0, 1).text() == str(r.count)
+        for row, name in enumerate(r.per_tomogram, start=1):
+            assert widget.results_table.item(row, 0).text() == name and widget.results_table.item(row, 1).text() == str(r.counts[name])
+        overall = widget.mean_label.pixmap().toImage()
+        widget.results_table.selectRow(1)
+        assert not widget.mean_label.pixmap().isNull()
+        assert overall.size() == widget.mean_label.pixmap().toImage().size()
+
+    # test_save_writes_on_request: nothing on disk until Save, then the mean, the montage and the labelled montage, per-tomogram means only when ticked
+    def test_save_writes_on_request(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+        widget = self._ran(qtbot, pane)
+        folder = widget.result.folder
+        assert not folder.exists()
+        paths = widget.save()
+        assert sorted(p.name for p in folder.glob('*.png')) == ['overall_mean.png', 'overall_montage.png', 'overall_montage_labelled.png'] and len(paths) == 3
+        plain, labelled = QImage(str(folder / 'overall_montage.png')), QImage(str(folder / 'overall_montage_labelled.png'))
         assert not plain.isNull() and plain.size() == labelled.size() and plain != labelled
+        widget.per_tomogram_box.setChecked(True)
+        widget.save()
+        assert any(p.name.endswith('_mean.png') and p.name != 'overall_mean.png' for p in folder.glob('*.png'))
+
+    # test_save_needs_a_result: Save is greyed and writes nothing before a run, and again after the kind changes
+    def test_save_needs_a_result(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+        widget, _, _ = pane
+        assert not widget.save_button.isEnabled() and widget.save() == []
+        widget = self._ran(qtbot, pane)
+        assert widget.save_button.isEnabled()
+        widget.kind_box.addItem('other')
+        widget.kind_box.setCurrentText('other')
+        assert not widget.save_button.isEnabled() and widget.results_table.rowCount() == 0 and widget.result is None
 
     # test_layout: Mean and Montage have their own headings and the list sits beside the mean
     def test_layout(self, pane: tuple[AveragePane, Session, EstimateService]) -> None:
