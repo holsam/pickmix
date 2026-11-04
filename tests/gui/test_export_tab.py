@@ -3,14 +3,17 @@ pickmix: tests for the Export tab
 '''
 
 # Import external dependencies
-import pytest
+import csv, pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from PySide6.QtCore import Qt
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
+from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
+from pickmix.gui.style import MUTED
 from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.loader import Loader
 from pickmix.model import Session
@@ -100,3 +103,61 @@ class TestExportTab:
         assert any('green: 1 picks have no cage within 100 A' in l for l in lines)
         [row] = read_star_loop(session.project.config.out_dir / 'relion' / 'green' / 'particles.star')
         assert (row['rlnTomoSubtomogramTilt'], row['rlnAngleTiltPrior']) == ('90.0000', '0.0000')
+
+    # test_no_console: the log box is gone and messages go to stdout
+    def test_no_console(self, qtbot: QtBot, setup: Callable[[], tuple[ExportTab, Session, EstimateService]], capsys) -> None:
+        tab, _, _ = setup()
+        assert not hasattr(tab, 'log') and not hasattr(tab, 'status')
+        tab._logged(['yellow: wrote 1 particles'])
+        assert 'yellow: wrote 1 particles' in capsys.readouterr().out and tab.spinner.status is None
+
+    # test_export_formats: star only and csv only write only that format, both write both
+    def test_export_formats(self, qtbot: QtBot, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, session, service = setup()
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
+        out = session.project.config.out_dir
+        tab.export_all(formats=frozenset({'csv'}))
+        assert (out / 'csv' / 'yellow.csv').exists() and not (out / 'relion' / 'yellow').exists()
+        tab.export_all(formats=frozenset({'star'}))
+        assert (out / 'relion' / 'yellow' / 'particles.star').exists()
+        rows = list(csv.DictReader(open(out / 'csv' / 'yellow.csv')))
+        assert len(rows) == 1 and rows[0]['kind'] == 'yellow'
+
+    # test_export_button_needs_a_format: ticking neither format disables Export, and a running job disables both buttons
+    def test_export_button_needs_a_format(self, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.star_box.isChecked() and tab.csv_box.isChecked() and tab.export_button.isEnabled()
+        tab.star_box.setChecked(False)
+        assert tab.export_button.isEnabled()
+        tab.csv_box.setChecked(False)
+        assert not tab.export_button.isEnabled() and tab.extract_button.isEnabled()
+        tab.csv_box.setChecked(True)
+        tab._running = True
+        tab._sync_buttons()
+        assert not tab.export_button.isEnabled() and not tab.extract_button.isEnabled()
+
+    # test_include_flagged: flagged picks go in by default and stay out when Include flagged is cleared, in both formats
+    def test_include_flagged(self, qtbot: QtBot, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, session, service = setup()
+        assert tab._includes['yellow'].isChecked() and 'Include flagged' in [tab.kinds_table.horizontalHeaderItem(c).text() for c in range(9)]
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
+        fit = service.store.get(pick)
+        # the store hands back its row type, put wants a plain fit
+        flagged = Fit.model_validate({**fit.model_dump(include=set(Fit.model_fields)), 'flag': 'edge'})
+        service.store.put(pick, flagged, service.store.digest('yellow'))
+        out = session.project.config.out_dir
+        assert any(l.startswith('yellow: wrote 1 particles') for l in tab.export_all())
+        tab._includes['yellow'].setChecked(False)
+        lines = tab.export_all()
+        assert 'yellow: nothing to export' in lines and not [l for l in lines if l.startswith('yellow: wrote')]
+
+    # test_editable_columns_marked: Min SNR and Include flagged show the edit icon, the others are grey and plain
+    def test_editable_columns_marked(self, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        for c in (7, 8):
+            assert not tab.kinds_table.horizontalHeaderItem(c).icon().isNull() and tab.kinds_table.horizontalHeaderItem(c).toolTip()
+        for c in (0, 1, 2, 3, 4, 5, 6):
+            assert tab.kinds_table.horizontalHeaderItem(c).icon().isNull()
+            assert tab.kinds_table.item(0, c).foreground().color().name() == MUTED
