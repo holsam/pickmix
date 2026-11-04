@@ -1,21 +1,19 @@
 '''
-pickmix: Review tab, every pick with filters, a preview of the selected pick, and export and extraction per kind
+pickmix: Review tab, every pick with filters and a preview of the selected pick
 '''
 
 # Import external dependencies
 import numpy as np
-from collections.abc import Callable
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox, QHBoxLayout, QLabel, QMessageBox,
-    QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QMessageBox,
+    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
 from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
-from pickmix.export import Item, export_kind, recommend_box
-from pickmix.extract import extract_kind
+from pickmix.export import Item
 from pickmix.geometry import Parent
 from pickmix.gui.components.images import to_pixmap
 from pickmix.gui.style import tidy
@@ -27,9 +25,6 @@ from pickmix.model import Pick, Session
 # _COLUMNS: pick table headings
 _COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate']
 
-# _KIND_COLUMNS: per-kind export table headings
-_KIND_COLUMNS: list[str] = ['Kind', 'Picks', 'Estimated', 'Flagged', 'Box (A)', 'Box (px)', 'Extract A/px', 'Min SNR', 'Drop flagged']
-
 # _CROP: half-width in voxels of the preview crops
 _CROP: int = 64
 
@@ -39,7 +34,7 @@ _PREVIEW: int = 256
 # _ANY_SNR: minimum of the SNR filter, shown as "any"
 _ANY_SNR: float = -1000.0
 
-# ReviewTab: pick table and filters above, preview beside, export and extraction below
+# ReviewTab: pick table and filters above, preview beside
 class ReviewTab(QWidget):
     # open_pick: a row was double-clicked, tomogram name and pick id
     open_pick = Signal(str, int)
@@ -77,17 +72,6 @@ class ReviewTab(QWidget):
             label.setFixedSize(_PREVIEW, _PREVIEW)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             label.setStyleSheet('background: #141414; color: #888')
-        self.kinds_table = QTableWidget(0, len(_KIND_COLUMNS))
-        self.kinds_table.setHorizontalHeaderLabels(_KIND_COLUMNS)
-        self.kinds_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.kinds_table.setMaximumHeight(160)
-        self._spins: dict[str, QDoubleSpinBox] = {}
-        self._drops: dict[str, QCheckBox] = {}
-        self.export_button = QPushButton('Export star files')
-        self.extract_button = QPushButton('Extract boxes')
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setMaximumHeight(110)
         filters = QHBoxLayout()
         for text, widget in (('Kind', self.kind_filter), ('Tomogram', self.tomo_filter), ('Min SNR', self.snr_spin)):
             filters.addWidget(QLabel(text))
@@ -103,20 +87,10 @@ class ReviewTab(QWidget):
         body = QHBoxLayout()
         body.addWidget(self.table, 1)
         body.addLayout(previews)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.export_button)
-        buttons.addWidget(self.extract_button)
-        buttons.addStretch()
-        export = QGroupBox('Export and extract')
-        box = QVBoxLayout(export)
-        box.addWidget(self.kinds_table)
-        box.addLayout(buttons)
-        box.addWidget(self.log)
         layout = QVBoxLayout(self)
         tidy(layout)
         layout.addLayout(filters)
         layout.addLayout(body, 1)
-        layout.addWidget(export)
         for combo in (self.kind_filter, self.tomo_filter):
             combo.currentIndexChanged.connect(self.refresh)
         self.flagged_box.toggled.connect(self.refresh)
@@ -125,8 +99,6 @@ class ReviewTab(QWidget):
         self.table.cellDoubleClicked.connect(self._double_clicked)
         self.delete_button.clicked.connect(self._ask_delete_flagged)
         self.reestimate_button.clicked.connect(self._reestimate)
-        self.export_button.clicked.connect(lambda: self._run(self.export_all))
-        self.extract_button.clicked.connect(lambda: self._run(self.extract_all))
 
     # set_session: show a session and follow its picks and estimates
     def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
@@ -135,7 +107,7 @@ class ReviewTab(QWidget):
         service.store.listeners.append(self._schedule)
         self.refresh_kinds()
 
-    # refresh_kinds: rebuild the kind filter and the export table from the config
+    # refresh_kinds: rebuild the kind and tomogram filters from the config
     def refresh_kinds(self) -> None:
         if self.session is None:
             return
@@ -147,24 +119,9 @@ class ReviewTab(QWidget):
             combo.addItems(['(all)', *names])
             combo.setCurrentText(current if current in names else '(all)')
             combo.blockSignals(False)
-        self._spins, self._drops = {}, {}
-        self.kinds_table.setRowCount(len(kinds))
-        for r, (name, kind) in enumerate(kinds.items()):
-            for c in range(len(_KIND_COLUMNS)):
-                self.kinds_table.setItem(r, c, QTableWidgetItem())
-            self.kinds_table.item(r, 0).setText(name)
-            self.kinds_table.item(r, 6).setText(f'{kind.extract_angpix:g}')
-            spin = QDoubleSpinBox()
-            spin.setRange(_ANY_SNR, 1000.0)
-            spin.setValue(_ANY_SNR)
-            spin.setSpecialValueText('any')
-            drop = QCheckBox()
-            self.kinds_table.setCellWidget(r, 7, spin)
-            self.kinds_table.setCellWidget(r, 8, drop)
-            self._spins[name], self._drops[name] = spin, drop
         self.refresh()
 
-    # refresh: rebuild the pick table with the filters applied, and the per-kind numbers
+    # refresh: rebuild the pick table with the filters applied
     def refresh(self) -> None:
         if self.session is None or self.service is None:
             return
@@ -185,12 +142,6 @@ class ReviewTab(QWidget):
             self.table.selectRow([p.id for p in self._shown].index(selected))
         self.table.blockSignals(False)
         self.count_label.setText(f'{len(rows)} shown of {self.session.store.total()}')
-        for r, (name, kind) in enumerate(self.session.project.config.kinds.items()):
-            items = self._items(name)
-            box_a, box_px = recommend_box(kind, items)
-            for c, text in ((1, str(self.session.store.total(name))), (2, str(len(items))), (3, str(sum(bool(f.flag) for _, f in items))),
-                            (4, f'{box_a:.0f}'), (5, str(box_px))):
-                self.kinds_table.item(r, c).setText(text)
 
     # delete_flagged: remove the flagged picks currently shown
     def delete_flagged(self) -> int:
@@ -199,47 +150,6 @@ class ReviewTab(QWidget):
         if doomed:
             self.session.store.remove(*doomed)
         return len(doomed)
-
-    # export_all: write star files for every kind with current estimates; returns log lines. Runs on a worker thread, so the widget settings are passed in
-    def export_all(self, settings: dict[str, tuple[float, bool]] | None = None) -> list[str]:
-        assert self.session is not None
-        settings = settings or self._settings()
-        lines = self._preflight()
-        config = self.session.project.config
-        for name, kind in config.kinds.items():
-            items = self._selected(name, settings)
-            if not items:
-                lines.append(f'{name}: nothing to export')
-                continue
-            try:
-                s = export_kind(name, kind, items, self.session.project.tomos, config.out_dir, min_snr=settings[name][0], drop_flagged=settings[name][1], parents=self._matched(name))
-            except ValueError as e:
-                lines.append(str(e))
-                continue
-            lines.append(
-                f'{name}: wrote {s.written} particles ({s.below_snr} below min SNR, {s.dropped_flagged} flagged dropped), '
-                f'box {s.box_a:.0f} A = {s.box_px} px at {kind.extract_angpix:g} A/px, in {str(s.folder)!r}'
-            )
-        return lines
-
-    # extract_all: cut boxes for every kind with current estimates; returns log lines. Runs on a worker thread
-    def extract_all(self, settings: dict[str, tuple[float, bool]] | None = None) -> list[str]:
-        assert self.session is not None
-        settings = settings or self._settings()
-        lines = self._preflight()
-        config = self.session.project.config
-        for name, kind in config.kinds.items():
-            items = self._selected(name, settings)
-            if not items:
-                lines.append(f'{name}: nothing to extract')
-                continue
-            try:
-                s = extract_kind(name, kind, items, self.session.project.tomos, config, log=lines.append)
-            except ValueError as e:
-                lines.append(str(e))
-                continue
-            lines.append(f'{name}: wrote {s.written} boxes of {s.box_px} px at {s.pixel_size:.2f} A/px, in {str(s.folder)!r}')
-        return lines
 
     # _schedule: coalesce bursts of changes, from any thread, into one refresh
     def _schedule(self) -> None:
@@ -260,29 +170,6 @@ class ReviewTab(QWidget):
         assert self.session is not None
         return flagged(self.session, kind, pick, fit, parents)
 
-    # _settings: minimum SNR and drop-flagged choice per kind from the export table; read on the GUI thread
-    def _settings(self) -> dict[str, tuple[float, bool]]:
-        return {n: (-np.inf if s.value() <= _ANY_SNR else s.value(), self._drops[n].isChecked()) for n, s in self._spins.items()}
-
-    # _selected: current fits of a kind that pass its SNR and flag settings
-    def _selected(self, kind: str, settings: dict[str, tuple[float, bool]]) -> list[Item]:
-        min_snr, drop = settings[kind]
-        return [(p, f) for p, f in self._items(kind) if f.snr >= min_snr and not (drop and f.flag)]
-
-    # _preflight: warnings about picks the export will skip
-    def _preflight(self) -> list[str]:
-        assert self.session is not None
-        lines = []
-        for name, kind in self.session.project.config.kinds.items():
-            items = self._items(name)
-            missing = self.session.store.total(name) - len(items)
-            if missing:
-                lines.append(f'{name}: {missing} picks have no current estimate and are skipped (wait for estimating, or Re-estimate all)')
-            orphans = sum('noparent' in f.flag for _, f in items)
-            if orphans:
-                lines.append(f'{name}: {orphans} picks have no {kind.parent} within {kind.parent_tolerance_a:g} A and are skipped')
-        return lines
-
     # _filtered: picks of known kinds passing the filters, in tomogram then kind order, with their current fit
     def _filtered(self) -> list[tuple[Pick, Fit | None]]:
         assert self.session is not None and self.service is not None
@@ -291,16 +178,16 @@ class ReviewTab(QWidget):
         min_snr = self.snr_spin.value()
         order = {n: i for i, n in enumerate(self.session.names)}
         kinds = {k: i for i, k in enumerate(self.session.project.config.kinds)}
-        matched = {k: self._matched(k) for k in kinds}
+        parents = {k: self._matched(k) for k in kinds}
         out = []
         for pick in self.session.store.all():
             if pick.kind not in kinds or (kind != '(all)' and pick.kind != kind) or (tomo != '(all)' and pick.tomogram != tomo):
                 continue
             fit = self.service.store.get(pick)
             if fit is not None:
-                fit = self._flagged(pick.kind, pick, fit, matched[pick.kind])
-            flagged = fit is not None and bool(fit.flag)
-            if (self.flagged_box.isChecked() and not flagged) or (min_snr > _ANY_SNR and (fit is None or fit.snr < min_snr)):
+                fit = self._flagged(pick.kind, pick, fit, parents[pick.kind])
+            is_flagged = fit is not None and bool(fit.flag)
+            if (self.flagged_box.isChecked() and not is_flagged) or (min_snr > _ANY_SNR and (fit is None or fit.snr < min_snr)):
                 continue
             out.append((pick, fit))
         out.sort(key=lambda pf: (order.get(pf[0].tomogram, len(order)), kinds[pf[0].kind]))
@@ -316,19 +203,6 @@ class ReviewTab(QWidget):
     def _reestimate(self) -> None:
         if self.service is not None:
             self.service.request_all()
-
-    # _run: run an export or extraction job in the background, logging its lines
-    def _run(self, job: Callable[[dict[str, tuple[float, bool]]], list[str]]) -> None:
-        self.export_button.setEnabled(False)
-        self.extract_button.setEnabled(False)
-        settings = self._settings()
-        run_in_background(lambda: job(settings), self._logged, lambda message: self._logged([message]))
-
-    # _logged: show job output and unblock the buttons
-    def _logged(self, lines: list[str]) -> None:
-        self.log.appendPlainText('\n'.join(lines))
-        self.export_button.setEnabled(True)
-        self.extract_button.setEnabled(True)
 
     # _double_clicked: open the pick in the Pick tab
     def _double_clicked(self, row: int, _col: int) -> None:

@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
 # Import internal pickmix objects
 from pickmix.config import HOTKEYS, Kind
 from pickmix.estimates import EstimateService
-from pickmix.gui.panes.average_pane import AveragePane
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 from pickmix.gui.style import heading, icon, tidy
 from pickmix.model import Session
@@ -31,7 +30,7 @@ class KindsTab(QWidget):
     # config_saved: the kinds or hotkeys were written to config.toml
     config_saved = Signal()
 
-    # __init__: build the Kinds and Hotkeys panes over the Average pane
+    # __init__: build the Kinds and Hotkeys panes
     def __init__(self) -> None:
         super().__init__()
         self.project: Project | None = None
@@ -73,12 +72,10 @@ class KindsTab(QWidget):
         top.addLayout(kinds_pane, 2)
         top.addLayout(hotkeys_pane, 1)
         self.status = QLabel()
-        self.average = AveragePane()
         layout = QVBoxLayout(self)
         tidy(layout)
         layout.addLayout(top, 1)
         layout.addWidget(self.status)
-        layout.addWidget(self.average)
 
     # set_project: show the kinds and hotkeys of a project
     def set_project(self, project: Project) -> None:
@@ -89,7 +86,6 @@ class KindsTab(QWidget):
     # set_session: the picks and estimates that follow a kind when it is renamed or deleted, or none; the Average pane uses them too
     def set_session(self, session: Session | None, service: EstimateService | None) -> None:
         self.session, self.service = session, service
-        self.average.set_session(session, service)
 
     # eventFilter: lay the kinds out again when the list is resized
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:

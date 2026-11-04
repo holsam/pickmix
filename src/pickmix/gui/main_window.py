@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget, QLineEdit, QMainWindow,
 from pickmix.gui.components.toast import install
 from pickmix.gui.tabs.kinds_tab import KindsTab
 from pickmix.estimates import EstimateService
+from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.gui.tabs.review_tab import ReviewTab
@@ -36,13 +37,15 @@ class MainWindow(QMainWindow):
         self.kinds_tab = KindsTab()
         self.pick_tab = PickTab()
         self.review_tab = ReviewTab()
+        self.export_tab = ExportTab()
         self.dock = TomoPane()
         self.tabs.addTab(self.project_tab, 'Project')
         self.tabs.addTab(self.kinds_tab, 'Kinds')
         self.tabs.addTab(self.pick_tab, 'Pick')
         self.tabs.addTab(self.review_tab, 'Review')
-        for i in range(1, self.tabs.count()):
-            self.tabs.setTabEnabled(i, False)
+        self.tabs.addTab(self.export_tab, 'Export')
+        self.tabs.setTabEnabled(self.tabs.indexOf(self.kinds_tab), False)
+        self._set_enabled(session=False)
         self.setCentralWidget(self.tabs)
         self.dock_widget = QDockWidget('Tomograms')
         self.dock_widget.setWidget(self.dock)
@@ -50,7 +53,6 @@ class MainWindow(QMainWindow):
         self.dock_widget.hide()
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_widget)
         self.tabs.currentChanged.connect(self._sync_dock)
-        self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.config_saved.connect(self._on_settings)
         self.project_tab.project_closed.connect(self._on_closed)
@@ -88,15 +90,15 @@ class MainWindow(QMainWindow):
             self.service = EstimateService(self.session, self.loader)
             self.pick_tab.set_session(self.session, self.loader, self.service)
             self.review_tab.set_session(self.session, self.loader, self.service)
+            self.export_tab.set_session(self.session, self.loader, self.service)
             self.dock.set_session(self.session)
             self.kinds_tab.set_session(self.session, self.service)
         else:
             self.session = self.loader = self.service = None
             self.kinds_tab.set_session(None, None)
-        for i in range(1, self.tabs.count()):
-            self.tabs.setTabEnabled(i, True)
-        self.tabs.setTabEnabled(2, self.session is not None)
-        self.tabs.setTabEnabled(3, self.session is not None)
+            self.export_tab.clear()
+        self.tabs.setTabEnabled(self.tabs.indexOf(self.kinds_tab), True)
+        self._set_enabled(session=self.session is not None)
         self._sync_dock()
 
     # _shutdown: stop the estimate service and loader of the current project, if any
@@ -107,14 +109,20 @@ class MainWindow(QMainWindow):
             self.loader.shutdown()
         self.session = self.loader = self.service = None
 
+    # _set_enabled: Pick, Review and Export need a session
+    def _set_enabled(self, *, session: bool) -> None:
+        for tab in (self.pick_tab, self.review_tab, self.export_tab):
+            self.tabs.setTabEnabled(self.tabs.indexOf(tab), session)
+
     # _on_closed: no project; lock everything but the Project tab
     def _on_closed(self) -> None:
         self._shutdown()
         self.project = None
         self.setWindowTitle('pickmix')
         self.kinds_tab.set_session(None, None)
-        for i in range(1, self.tabs.count()):
-            self.tabs.setTabEnabled(i, False)
+        self.tabs.setTabEnabled(self.tabs.indexOf(self.kinds_tab), False)
+        self._set_enabled(session=False)
+        self.export_tab.clear()
         self.tabs.setCurrentWidget(self.project_tab)
         self._sync_dock()
 
@@ -127,7 +135,7 @@ class MainWindow(QMainWindow):
     def _on_kinds(self) -> None:
         self.pick_tab.refresh_kinds()
         self.review_tab.refresh_kinds()
-        self.kinds_tab.average.refresh_kinds()
+        self.export_tab.average.refresh_kinds()
         self.dock.refresh()
 
     # _open_pick: show a pick from the Review tab in the Pick tab

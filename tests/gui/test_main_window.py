@@ -64,12 +64,12 @@ class TestMainWindow:
         window.service.shutdown()
         window.loader.shutdown()
 
-    # test_average_pane_wired: the Average pane in the Kinds tab lists the project's kinds
+    # test_average_pane_wired: the Average pane in the Export tab lists the project's kinds
     def test_average_pane_wired(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         window = MainWindow()
         qtbot.addWidget(window)
         window.project_tab.set_project(open_project(make_config()))
-        assert window.kinds_tab.average.kind_box.count() == 1
+        assert window.export_tab.average.kind_box.count() == 1
         window.service.shutdown()
         window.loader.shutdown()
 
@@ -104,7 +104,7 @@ class TestMainWindow:
         window = MainWindow()
         qtbot.addWidget(window)
         window.project_tab.set_project(open_project(path))
-        for tab in (window.pick_tab, window.review_tab, window.kinds_tab):
+        for tab in (window.pick_tab, window.review_tab, window.kinds_tab, window.export_tab):
             window.tabs.setCurrentWidget(tab)
         assert window.kinds_tab.kind_names() == [] and window.pick_tab.active is None
         window.service.shutdown()

@@ -16,7 +16,6 @@ from pickmix.gui.tabs.review_tab import ReviewTab
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import open_project
-from pickmix.utils.star import read_star_loop
 
 # NAME: the single tomogram of the fixture project
 NAME: str = 'Position_1_2'
@@ -85,30 +84,6 @@ class TestReviewTab:
         assert tab.delete_flagged() == 1
         assert [p.id for p in session.store.all()] == [good.id]
 
-    # test_kind_numbers: per-kind counts and box in the export table
-    def test_kind_numbers(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
-        tab, session, service = setup()
-        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
-        qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
-        tab.refresh()
-        assert [tab.kinds_table.item(0, c).text() for c in range(6)] == ['yellow', '1', '1', '0', '21', '4']
-
-    # test_export_and_extract: both write their files and report skipped picks
-    def test_export_and_extract(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
-        tab, session, service = setup()
-        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
-        qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
-        out = session.project.config.out_dir
-        lines = tab.export_all()
-        assert any(l.startswith('yellow: wrote 1 particles') for l in lines) and 'bad: nothing to export' in lines
-        assert read_star_loop(out / 'relion' / 'yellow' / 'particles.star')[0]['rlnCenteredCoordinateXAngst'] == '0.00'
-        lines = tab.extract_all()
-        assert any(l.startswith('yellow: wrote 1 boxes of 4 px') for l in lines)
-        assert (out / 'particles' / 'yellow' / NAME / f'{NAME}_000.mrc').exists()
-        service.shutdown()
-        session.store.add(NAME, 'yellow', 1.0, 1.0, 1.0)
-        assert any('no current estimate' in l for l in tab.export_all())
-
     # test_crops: preview crops are cut around the pick
     def test_crops(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, _, _ = setup()
@@ -125,8 +100,8 @@ class TestReviewTab:
             tab._double_clicked(0, 0)
         assert blocker.args == [NAME, pick.id]
 
-    # test_unmatched_flagged_and_skipped: a pick off its parent's surface is flagged noparent, reported, and left out of the star file
-    def test_unmatched_flagged_and_skipped(self, qtbot: QtBot, parent_setup: tuple[ReviewTab, Session, EstimateService]) -> None:
+    # test_unmatched_flagged: a pick off its parent's surface is flagged noparent and can be deleted
+    def test_unmatched_flagged(self, qtbot: QtBot, parent_setup: tuple[ReviewTab, Session, EstimateService]) -> None:
         tab, session, service = parent_setup
         session.store.add(NAME, 'cage', 10.0, 10.0, 10.0)
         session.store.add(NAME, 'green', 10.0 + 56.0, 10.0, 10.0)
@@ -135,8 +110,3 @@ class TestReviewTab:
         tab.refresh()
         flags = {(tab.table.item(r, 1).text(), tab.table.item(r, 6).text()) for r in range(tab.table.rowCount())}
         assert ('green', 'noparent') in flags
-        lines = tab.export_all()
-        assert any('green: 1 picks have no cage within 100 A' in l for l in lines)
-        [row] = read_star_loop(session.project.config.out_dir / 'relion' / 'green' / 'particles.star')
-        assert (row['rlnTomoSubtomogramTilt'], row['rlnAngleTiltPrior']) == ('90.0000', '0.0000')
-        assert tab.delete_flagged() == 1

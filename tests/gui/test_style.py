@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.tabs.kinds_tab import KindsTab
+from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.gui.tabs.review_tab import ReviewTab
@@ -59,7 +60,7 @@ class TestStyle:
             app.setStyleSheet('')
 
     # test_tabs_use_shared_spacing: every tab's top-level layout uses the shared margin and spacing
-    @pytest.mark.parametrize('cls', [ProjectTab, KindsTab, PickTab, ReviewTab])
+    @pytest.mark.parametrize('cls', [ProjectTab, KindsTab, PickTab, ReviewTab, ExportTab])
     def test_tabs_use_shared_spacing(self, qtbot: QtBot, cls: type[QWidget]) -> None:
         tab = cls()
         qtbot.addWidget(tab)
