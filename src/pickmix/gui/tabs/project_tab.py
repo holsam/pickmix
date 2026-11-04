@@ -1,67 +1,24 @@
 '''
-pickmix: 'Project' tab for creating/opening projects and setting tomogram sources & estimator parameters
+pickmix: 'Project' tab for creating/opening projects and showing tomograms, kinds and settings
 '''
 
 # Import external dependencies
 from pathlib import Path
-from pydantic import BaseModel, ValidationError
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QPushButton, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
-from pickmix.config import RingParams
-from pickmix.gui.components.collapsible import Collapsible
 from pickmix.gui.dialogs.new_project_dialog import NewProjectDialog
 from pickmix.gui.panes.kinds_pane import KindsPane
+from pickmix.gui.panes.settings_pane import SettingsPane
+from pickmix.gui.panes.tomograms_pane import TomogramsPane
 from pickmix.gui.panes.welcome_pane import WelcomePane
-from pickmix.gui.style import form_label, heading, tidy
+from pickmix.gui.style import hint, icon_button, tidy, title
 from pickmix.gui.workers import run_in_background
 from pickmix.project import Project, create_project, open_project
 from pickmix.utils.star import MergeResult
 
-# _COLUMNS: tomogram table headings
-_COLUMNS: list[str] = ['Name', 'Shape (zyx)', 'Pixel size (A)', 'Denoised', 'Status']
-
-# _ParamsForm: a form for a flat pydantic model of numbers and number pairs, labelled from the field titles
-class _ParamsForm(QWidget):
-    # __init__: one row per field, "Title (units) (?): [a] - [b]"
-    def __init__(self, params: BaseModel) -> None:
-        super().__init__()
-        self._cls = type(params)
-        self._boxes: dict[str, list[QSpinBox | QDoubleSpinBox]] = {}
-        self.labels: dict[str, QLabel] = {}
-        layout = QFormLayout(self)
-        for name, value in params:
-            info = type(params).model_fields[name]
-            values = value if isinstance(value, tuple) else (value,)
-            boxes = [_spin(v) for v in values]
-            self._boxes[name] = boxes
-            row = QHBoxLayout()
-            for i, box in enumerate(boxes):
-                if i:
-                    row.addWidget(QLabel('-'))
-                row.addWidget(box)
-            row.addStretch()
-            # "Title (units) (?):" in the label column, then the values
-            head = form_label(info.title or name, info.description or '')
-            self.labels[name] = head.findChild(QLabel)
-            layout.addRow(head, row)
-
-    # set: show the values of a model
-    def set(self, params: BaseModel) -> None:
-        for name, value in params:
-            for box, v in zip(self._boxes[name], value if isinstance(value, tuple) else (value,), strict=True):
-                box.setValue(v)
-
-    # get: a model of the shown values, validated by pydantic
-    def get(self) -> BaseModel:
-        return self._cls(**{n: tuple(b.value() for b in boxes) if len(boxes) > 1 else boxes[0].value() for n, boxes in self._boxes.items()})
-
-# ProjectTab: project open/create, tomogram table and settings
+# ProjectTab: the welcome page when no project is open, else a top bar over tomograms, kinds and settings
 class ProjectTab(QWidget):
     # project_changed: a project was opened or created
     project_changed = Signal(object)
@@ -76,57 +33,41 @@ class ProjectTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.project: Project | None = None
-        self.path_label = QLabel()
         self.welcome = WelcomePane()
         self.open_button = self.welcome.open_button
         self.new_button = self.welcome.new_button
-        self.reload_button = QPushButton('Reload config')
-        self.close_button = QPushButton('Close project')
+        self.reload_button = icon_button('cached', 'Reload', 'Reload config.toml and rescan the tomograms')
+        self.close_button = icon_button('logout', 'Close', 'Close the project')
+        self.title_label = title()
+        self.path_label = hint()
         self.status = QLabel()
-        self.summary = QLabel()
-        self.table = QTableWidget(0, len(_COLUMNS))
-        self.table.setHorizontalHeaderLabels(_COLUMNS)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.source_box = QComboBox()
-        self.source_box.addItems(['denoised', 'raw'])
-        self.ring_form = _ParamsForm(RingParams())
+        self.tomograms = TomogramsPane()
         self.kinds_pane = KindsPane()
-        self.kinds_pane.config_saved.connect(self.kinds_saved)
-        self.save_button = QPushButton('Save settings')
-        general = QGroupBox('General')
-        source = QFormLayout(general)
-        source.addRow('Volume source', self.source_box)
-        estimators = QGroupBox('Estimators')
-        estimator_box = QVBoxLayout(estimators)
-        self.ring_section = Collapsible('Ring', self.ring_form)
-        estimator_box.addWidget(self.ring_section)
-        self.settings = QWidget()
-        self.settings.setMinimumWidth(self.ring_form.sizeHint().width() + 48)
-        form = QVBoxLayout(self.settings)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.addWidget(heading('Settings'))
-        form.addWidget(general)
-        form.addWidget(estimators)
-        form.addWidget(self.save_button)
-        form.addStretch()
-        # page 1: the open project
+        self.settings_pane = SettingsPane()
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        settings_scroll.setWidget(self.settings_pane)
+        settings_scroll.setMinimumWidth(self.settings_pane.minimumWidth() + 24)
+        # top bar: name and path on the left, reload and close on the right
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(self.title_label)
+        names.addWidget(self.path_label)
         top = QHBoxLayout()
-        top.addWidget(self.path_label, 1)
-        top.addWidget(self.reload_button)
-        top.addWidget(self.close_button)
-        left = QVBoxLayout()
-        left.addWidget(self.summary)
-        left.addWidget(self.table)
-        left.addWidget(self.kinds_pane)
-        body = QHBoxLayout()
-        body.addLayout(left, 3)
-        body.addWidget(self.settings, 1)
+        top.addLayout(names, 1)
+        top.addWidget(self.reload_button, alignment=Qt.AlignmentFlag.AlignTop)
+        top.addWidget(self.close_button, alignment=Qt.AlignmentFlag.AlignTop)
+        columns = QHBoxLayout()
+        columns.addWidget(self.tomograms, 3)
+        columns.addWidget(self.kinds_pane, 2)
+        columns.addWidget(settings_scroll, 0)
         opened = QWidget()
         opened_layout = QVBoxLayout(opened)
         opened_layout.setContentsMargins(0, 0, 0, 0)
         opened_layout.addLayout(top)
-        opened_layout.addLayout(body)
+        opened_layout.addLayout(columns, 1)
         self.stack = QStackedWidget()
         self.stack.addWidget(self.welcome)
         self.stack.addWidget(opened)
@@ -138,7 +79,9 @@ class ProjectTab(QWidget):
         self.new_button.clicked.connect(self._new_dialog)
         self.reload_button.clicked.connect(self._reload)
         self.close_button.clicked.connect(self.close_project)
-        self.save_button.clicked.connect(self.save_settings)
+        self.settings_pane.config_saved.connect(self.config_saved)
+        self.settings_pane.hotkeys_saved.connect(self.kinds_saved)
+        self.kinds_pane.config_saved.connect(self._kinds_saved)
 
     # open_config: open a config.toml in the background
     def open_config(self, path: Path) -> None:
@@ -148,57 +91,26 @@ class ProjectTab(QWidget):
     # set_project: show a project and announce it
     def set_project(self, project: Project) -> None:
         self.project = project
+        self.title_label.setText(project.display_name)
         self.path_label.setText(str(project.path))
-        self._fill_table(project)
-        self.source_box.setCurrentText(project.config.source)
-        self.ring_form.set(project.config.ring)
+        self.tomograms.set_project(project)
+        self.kinds_pane.set_project(project)
+        self.settings_pane.set_project(project)
         self.stack.setCurrentIndex(1)
         self._idle('')
-        self.kinds_pane.set_project(project)
         self.project_changed.emit(project)
 
-    # close_project: close the open project and go back to the start page
+    # close_project: close the open project and go back to the welcome page
     def close_project(self) -> None:
         self.project = None
         self.stack.setCurrentIndex(0)
         self.status.setText('')
         self.project_closed.emit()
 
-    # save_settings: write source and ring parameters to config.toml
-    def save_settings(self) -> None:
-        if self.project is None:
-            return
-        try:
-            self.project.update(source=self.source_box.currentText(), ring=self.ring_form.get())
-        except ValidationError as e:
-            self.status.setText(f'Not saved: {e.errors()[0]["msg"]}')
-            return
-        self.status.setText('Saved')
-        self.config_saved.emit()
-
-    # _fill_table: one row per star row, rejected ones shaded with the reason
-    def _fill_table(self, project: Project) -> None:
-        self.table.setRowCount(len(project.names))
-        for r, name in enumerate(project.names):
-            if name in project.tomos:
-                t = project.tomos[name]
-                cells = [name, str(t.shape), f'{t.pixel_size:.2f}', 'yes' if t.denoised_path else 'no', 'ok']
-                tip = ''
-            else:
-                e = project.issues[name]
-                cells = [
-                    name, '-' if e.shape is None else str(e.shape), '-' if e.pixel_size is None else f'{e.pixel_size:.2f}',
-                    '-' if e.denoised is None else 'yes' if e.denoised else 'no', f'rejected: {e.reason}',
-                ]
-                tip = str(e)
-            for c, text in enumerate(cells):
-                item = QTableWidgetItem(text)
-                item.setToolTip(tip)
-                if tip:
-                    item.setBackground(QColor(255, 220, 220))
-                self.table.setItem(r, c, item)
-        with_denoised = sum(t.denoised_path is not None for t in project.tomos.values())
-        self.summary.setText(f'{len(project.tomos)} usable ({with_denoised} with denoised), {len(project.issues)} rejected')
+    # _kinds_saved: kinds changed, so the hotkey dropdowns list the new ones, then tell the other tabs
+    def _kinds_saved(self) -> None:
+        self.settings_pane.refresh_hotkeys()
+        self.kinds_saved.emit()
 
     # _open_dialog: choose a config.toml
     def _open_dialog(self) -> None:
@@ -241,18 +153,6 @@ class ProjectTab(QWidget):
     # _failed: show an error from background work
     def _failed(self, message: str) -> None:
         self._idle(message)
-
-# _spin: an integer or float spin box for a value
-def _spin(value: float) -> QSpinBox | QDoubleSpinBox:
-    if isinstance(value, int):
-        box: QSpinBox | QDoubleSpinBox = QSpinBox()
-        box.setRange(0, 1_000_000)
-    else:
-        box = QDoubleSpinBox()
-        box.setRange(0, 1_000_000)
-        box.setDecimals(2)
-    box.setValue(value)
-    return box
 
 # _create_and_open: create the project on disk, then open it
 def _create_and_open(values: dict[str, object]) -> tuple[Project, MergeResult]:

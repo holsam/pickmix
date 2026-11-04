@@ -124,3 +124,16 @@ class TestMainWindow:
         assert window.windowTitle() == 'pickmix • Cages'
         window.project_tab.close_button.click()
         assert window.windowTitle() == 'pickmix'
+
+    # test_settings_restart_is_debounced: a settings change rebuilds the session once after the changes stop
+    def test_settings_restart_is_debounced(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config()))
+        old = window.session
+        window._on_settings()
+        window._on_settings()
+        assert window.session is old
+        qtbot.waitUntil(lambda: window.session is not old, timeout=3000)
+        window.service.shutdown()
+        window.loader.shutdown()

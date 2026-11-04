@@ -122,20 +122,6 @@ class TestKindsPane:
         text = pane.details['cage'].text()
         assert '<b>Marker:</b> 600 Å' in text and '<b>Box:</b> from estimator' in text and '<b>Estimator:</b> ring' in text and '<b>Parent:</b> none' in text
 
-    # test_hotkey_defaults: keys start on the kinds in order, the rest are unused
-    def test_hotkey_defaults(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
-        pane, _ = _kinds_pane(qtbot, make_config)
-        assert [b.currentText() for b in pane.hotkey_boxes] == ['cage', *['(none)'] * 8]
-        assert pane.hotkey_boxes[1].itemText(0) == '(none)' and pane.hotkey_boxes[1].count() == 2
-
-    # test_hotkey_change_saves: choosing a kind for a key saves it and moves the kind off its old key
-    def test_hotkey_change_saves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
-        pane, path = _kinds_pane(qtbot, make_config)
-        with qtbot.waitSignal(pane.config_saved):
-            pane.hotkey_boxes[2].setCurrentText('cage')
-        assert load_config(path).hotkeys == ['', '', 'cage', *[''] * 6]
-        assert pane.hotkey_boxes[0].currentText() == '(none)'
-
     # test_add_kind: a new kind is saved after the others and takes the first free key
     def test_add_kind(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         pane, path = _kinds_pane(qtbot, make_config)
@@ -143,7 +129,7 @@ class TestKindsPane:
             pane._apply('yellow', Kind(marker_a=100, box_a=100))
         config = load_config(path)
         assert list(config.kinds) == ['cage', 'yellow'] and config.hotkeys[:3] == ['cage', 'yellow', '']
-        assert pane.kind_names() == ['cage', 'yellow'] and pane.hotkey_boxes[1].currentText() == 'yellow'
+        assert pane.kind_names() == ['cage', 'yellow']
 
     # test_edit_kind: the edit button opens the dialog on that kind and OK saves the changes
     def test_edit_kind(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
@@ -195,9 +181,9 @@ class TestKindsPane:
         pane._delete('cage')
         config = load_config(path)
         assert config.kinds == {} and config.hotkeys == [''] * 9
-        assert pane.kind_names() == [] and [b.currentText() for b in pane.hotkey_boxes] == ['(none)'] * 9
+        assert pane.kind_names() == []
         pane._apply('yellow', Kind(marker_a=100, box_a=100))
-        assert list(load_config(path).kinds) == ['yellow'] and pane.hotkey_boxes[0].currentText() == 'yellow'
+        assert list(load_config(path).kinds) == ['yellow'] and load_config(path).hotkeys[0] == 'yellow'
 
     # test_rename_follows: a rename keeps the kind's place, hotkey, children and picks, in memory and in picks.csv
     def test_rename_follows(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:

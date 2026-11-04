@@ -152,6 +152,15 @@ def big_button(text: str, stem: str) -> QPushButton:
         child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     return button
 
+# icon_button: an icon-only button with a tooltip, or a text button when the icon file is missing
+def icon_button(stem: str, text: str, tip: str) -> QPushButton:
+    found = icon(stem)
+    button = QPushButton() if found is not None else QPushButton(text)
+    if found is not None:
+        button.setIcon(found)
+    button.setToolTip(tip)
+    return button
+
 # image_well: a fixed square frame for an image, dark with its placeholder text centred
 def image_well(label: QLabel, size: int) -> None:
     label.setFixedSize(size, size)

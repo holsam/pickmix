@@ -4,7 +4,7 @@ pickmix: main GUI window
 
 # Import external dependencies
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QDockWidget, QLineEdit, QMainWindow, QTabWidget
 
@@ -49,6 +49,10 @@ class MainWindow(QMainWindow):
         self.dock_widget.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
         self.dock_widget.hide()
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_widget)
+        self._restart = QTimer(self)
+        self._restart.setSingleShot(True)
+        self._restart.setInterval(500)
+        self._restart.timeout.connect(self._restart_session)
         self.tabs.currentChanged.connect(self._sync_dock)
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.config_saved.connect(self._on_settings)
@@ -111,6 +115,7 @@ class MainWindow(QMainWindow):
 
     # _on_closed: no project; lock everything but the Project tab
     def _on_closed(self) -> None:
+        self._restart.stop()
         self._shutdown()
         self.project = None
         self.setWindowTitle('pickmix')
@@ -120,8 +125,12 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentWidget(self.project_tab)
         self._sync_dock()
 
-    # _on_settings: source or estimator settings changed, so start the session and loader afresh
+    # _on_settings: source or estimator settings changed; rebuild once the changes stop, as they save on every edit
     def _on_settings(self) -> None:
+        self._restart.start()
+
+    # _restart_session: start the session, loader and estimators afresh with the saved settings
+    def _restart_session(self) -> None:
         if self.project is not None:
             self._on_project(self.project)
 
