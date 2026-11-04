@@ -137,18 +137,22 @@ class TestReviewTab:
         modes = [header.sectionResizeMode(c) for c in range(8)]
         assert modes[:2] == [QHeaderView.ResizeMode.ResizeToContents] * 2 and set(modes[2:]) == {QHeaderView.ResizeMode.Stretch}
 
-    # test_preview_headings: the two images say which plane they show
-    def test_preview_headings(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
-        tab, _, _ = setup()
-        assert tab.xy_heading.text() == 'XY' and tab.xz_heading.text() == 'XZ'
-        assert tab.xy_heading.font().bold()
+    # test_preview_labels: the headings are gone and each image is labelled in its corner instead
+    def test_preview_labels(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        assert not hasattr(tab, 'xy_heading') and not hasattr(tab, 'xz_heading')
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        tab.refresh()
+        tab.table.selectRow(0)
+        qtbot.waitUntil(lambda: all(not label.pixmap().isNull() for label in (tab.xy_label, tab.xz_label, tab.yz_label)), timeout=5000)
+        assert tab.yz_label.toolTip() and not tab.reestimate_button.icon().isNull()
 
     # test_crops: preview crops are cut around the pick
     def test_crops(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, _, _ = setup()
-        xy, xz = tab.crops(NAME, (4.0, 3.0, 2.0))
+        xy, xz, yz = tab.crops(NAME, (4.0, 3.0, 2.0))
         vol = np.arange(4 * 6 * 8, dtype=np.float32).reshape(4, 6, 8)
-        assert np.array_equal(xy, vol[2]) and np.array_equal(xz, vol[:, 3, :])
+        assert np.array_equal(xy, vol[2]) and np.array_equal(xz, vol[:, 3, :]) and np.array_equal(yz, vol[:, :, 4])
 
     # test_double_click_opens: double-clicking a row asks to open the pick
     def test_double_click_opens(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:

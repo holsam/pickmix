@@ -32,12 +32,28 @@ def label_cells(image: QImage, labels: list[str], grid: int, pad: int, *, scale:
     font = painter.font()
     font.setPixelSize(max(8, int(cell / 4)))
     painter.setFont(font)
-    metrics = painter.fontMetrics()
     for i, text in enumerate(labels):
         row, col = divmod(i, grid)
-        box = QRect(int(gap + col * (cell + gap)), int(gap + row * (cell + gap)), metrics.horizontalAdvance(text) + 6, metrics.height() + 2)
-        painter.fillRect(box, LABEL_BG)
-        painter.setPen(OVERLAY_TEXT)
-        painter.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+        _draw_label(painter, int(gap + col * (cell + gap)), int(gap + row * (cell + gap)), text, int(cell))
     painter.end()
     return out
+
+# label_image: a copy of a pixmap with a label in its top-left corner
+def label_image(pixmap: QPixmap, text: str) -> QPixmap:
+    out = QPixmap(pixmap)
+    painter = QPainter(out)
+    font = painter.font()
+    font.setPixelSize(max(10, out.height() // 16))
+    painter.setFont(font)
+    _draw_label(painter, 4, 4, text, out.width() - 8)
+    painter.end()
+    return out
+
+# _draw_label: a translucent dark box with white text at a corner position, no wider than max_width (text elided on the right)
+def _draw_label(painter: QPainter, x: int, y: int, text: str, max_width: int) -> None:
+    metrics = painter.fontMetrics()
+    shown = metrics.elidedText(text, Qt.TextElideMode.ElideRight, max(max_width - 6, 1))
+    box = QRect(x, y, min(metrics.horizontalAdvance(shown) + 6, max_width), metrics.height() + 2)
+    painter.fillRect(box, LABEL_BG)
+    painter.setPen(OVERLAY_TEXT)
+    painter.drawText(box, Qt.AlignmentFlag.AlignCenter, shown)

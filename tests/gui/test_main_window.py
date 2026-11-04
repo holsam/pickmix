@@ -98,7 +98,9 @@ class TestMainWindow:
         assert size() == WELCOME_SIZE
         project = open_project(make_config())
         window.project_tab.set_project(project)
-        qtbot.waitUntil(lambda: size() == PROJECT_SIZE or window.screen().availableGeometry().height() < PROJECT_SIZE[1], timeout=3000)
+        # the platform may hold the window inside a small screen, so it only has to have grown and settled
+        qtbot.waitUntil(lambda: window._resizing.state() == window._resizing.State.Stopped, timeout=3000)
+        assert window.width() > WELCOME_SIZE[0] and window.height() > WELCOME_SIZE[1]
         window.resize(1200, 800)
         window.project_tab.set_project(project)
         assert size() == (1200, 800)

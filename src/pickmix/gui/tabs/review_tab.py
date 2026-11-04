@@ -15,10 +15,9 @@ from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
 from pickmix.export import Item
 from pickmix.geometry import Parent
-from pickmix.gui.components.icons import icon
-from pickmix.gui.components.images import to_pixmap
+from pickmix.gui.components.images import label_image, to_pixmap
 from pickmix.gui.components.status import fit_status, status_item
-from pickmix.gui.style import heading, image_well, quiet_table, tidy
+from pickmix.gui.style import image_well, quiet_table, tidy, white
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
@@ -31,7 +30,10 @@ _COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estima
 _CROP: int = 64
 
 # _PREVIEW: edge in pixels of the preview images
-_PREVIEW: int = 256
+_PREVIEW: int = 220
+
+# _COLUMN_GAP: pixels between the filters, the buttons and the count
+_COLUMN_GAP: int = 40
 
 # _FLAG_CHOICES: the flags filter, in drop-down order
 _FLAG_CHOICES: list[str] = ['(all)', 'Flagged only', 'Non-flagged only']
@@ -71,9 +73,9 @@ class ReviewTab(QWidget):
         self.delete_shown_button.setToolTip('Delete every pick the filters show')
         self.reestimate_button = QPushButton('Re-estimate all')
         self.reestimate_button.setToolTip('Fit every pick again')
-        refresh = icon('refresh')
-        if refresh is not None:
-            self.reestimate_button.setIcon(refresh)
+        reload_icon = white('cached')
+        if reload_icon is not None:
+            self.reestimate_button.setIcon(reload_icon)
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
         quiet_table(self.table)
@@ -85,37 +87,37 @@ class ReviewTab(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.xy_label = QLabel()
         self.xz_label = QLabel()
-        for label in (self.xy_label, self.xz_label):
+        self.yz_label = QLabel()
+        self.xy_label.setToolTip('The slice through the pick')
+        self.xz_label.setToolTip('The plane through the pick along z, at its y position')
+        self.yz_label.setToolTip('The plane through the pick along z, at its x position')
+        for label in (self.xy_label, self.xz_label, self.yz_label):
             image_well(label, _PREVIEW)
         # controls: filters over two rows, then buttons, then the shown count, all centred on the same line
         filters = QGridLayout()
         for row, col, text, widget in (
-            (0, 0, 'Kind', self.kind_filter), (0, 2, 'Tomogram', self.tomo_filter),
-            (1, 0, 'Min SNR', self.snr_spin), (1, 2, 'Flags', self.flag_filter),
+            (0, 0, 'Kind', self.kind_filter), (0, 3, 'Tomogram', self.tomo_filter),
+            (1, 0, 'Min SNR', self.snr_spin), (1, 3, 'Flags', self.flag_filter),
         ):
             filters.addWidget(QLabel(text), row, col)
             filters.addWidget(widget, row, col + 1)
+        filters.setColumnMinimumWidth(2, 24)
         buttons = QGridLayout()
         buttons.addWidget(self.delete_selected_button, 0, 0)
         buttons.addWidget(self.delete_shown_button, 0, 1)
         buttons.addWidget(self.reestimate_button, 1, 0, 1, 2)
         controls = QHBoxLayout()
         controls.addLayout(filters)
-        controls.addSpacing(16)
+        controls.addSpacing(_COLUMN_GAP)
         controls.addLayout(buttons)
-        controls.addSpacing(16)
+        controls.addSpacing(_COLUMN_GAP)
         controls.addWidget(self.count_label, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         controls.setAlignment(filters, Qt.AlignmentFlag.AlignVCenter)
         controls.setAlignment(buttons, Qt.AlignmentFlag.AlignVCenter)
         previews = QVBoxLayout()
-        self.xy_heading = heading('XY')
-        self.xz_heading = heading('XZ')
-        self.xy_heading.setToolTip('The slice through the pick')
-        self.xz_heading.setToolTip('The plane through the pick along z, at its y position')
-        previews.addWidget(self.xy_heading)
         previews.addWidget(self.xy_label)
-        previews.addWidget(self.xz_heading)
         previews.addWidget(self.xz_label)
+        previews.addWidget(self.yz_label)
         previews.addStretch()
         body = QHBoxLayout()
         body.addWidget(self.table, 1)
@@ -271,8 +273,8 @@ class ReviewTab(QWidget):
             lambda message: self.xy_label.setText(message),
         )
 
-    # crops: (xy, xz) arrays around a centre: the slice through it, and the plane through it along z
-    def crops(self, tomogram: str, centre: tuple[float, float, float]) -> tuple[np.ndarray, np.ndarray]:
+    # crops: (xy, xz, yz) arrays around a centre: the slice through it, and the planes through it along z at its y and at its x
+    def crops(self, tomogram: str, centre: tuple[float, float, float]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         assert self.loader is not None
         vol = self.loader.open(tomogram).result().vol
         x, y, z = (round(v) for v in centre)
@@ -282,11 +284,12 @@ class ReviewTab(QWidget):
         zs = slice(max(z - _CROP, 0), z + _CROP)
         xy = self.loader.slice(tomogram, z)[ys, xs]
         xz = np.asarray(vol[zs, min(max(y, 0), vol.shape[1] - 1), xs], dtype=np.float32)
-        return xy, xz
+        yz = np.asarray(vol[zs, ys, min(max(x, 0), vol.shape[2] - 1)], dtype=np.float32)
+        return xy, xz, yz
 
     # _show_preview: draw the crops unless a newer selection has been made
-    def _show_preview(self, token: int, crops: tuple[np.ndarray, np.ndarray]) -> None:
+    def _show_preview(self, token: int, crops: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
         if token != self._token:
             return
-        self.xy_label.setPixmap(to_pixmap(crops[0], _PREVIEW))
-        self.xz_label.setPixmap(to_pixmap(crops[1], _PREVIEW))
+        for label, crop, name in zip((self.xy_label, self.xz_label, self.yz_label), crops, ('XY', 'XZ', 'YZ'), strict=True):
+            label.setPixmap(label_image(to_pixmap(crop, _PREVIEW), name))

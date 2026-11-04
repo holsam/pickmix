@@ -5,14 +5,14 @@ pickmix: tests for gui components
 # Import external dependencies
 import numpy as np, pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QColor, QWheelEvent
+from PySide6.QtGui import QColor, QPixmap, QWheelEvent
 from PySide6.QtTest import QTest
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
-from pickmix.gui.components.images import label_cells, to_image, to_pixmap
+from pickmix.gui.components.images import label_cells, label_image, to_image, to_pixmap
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, fit_status, status_item
 from pickmix.gui.components.toast import notify
@@ -283,6 +283,16 @@ class TestStatus:
         assert fit_status('missing', '') == 'running' and fit_status('stale', 'x') == 'running'
         assert fit_status('ok', 'error') == 'error' and fit_status('ok', 'noparent,error') == 'error'
         assert fit_status('ok', 'noparent') == 'warn' and fit_status('ok', '') == 'ok'
+
+# TestLabelImage: single image labels
+class TestLabelImage:
+    # test_corner_only: the label changes the top-left corner and leaves the opposite corner alone, whatever its length
+    def test_corner_only(self, qtbot: QtBot) -> None:
+        base = QPixmap(100, 100)
+        base.fill(QColor('white'))
+        for text in ('XY', 'a very long label that cannot fit in the image at all'):
+            out = label_image(base, text).toImage()
+            assert out.size() == base.size() and out.pixelColor(6, 6) != QColor('white') and out.pixelColor(95, 95) == QColor('white')
 
 # TestToast: toast and notify
 class TestToast:
