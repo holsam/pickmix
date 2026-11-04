@@ -8,13 +8,15 @@ from concurrent.futures import Future
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
-    QScrollBar, QSlider, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
+    QScrollBar, QSlider, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
 from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
+from pickmix.gui.components.icons import icon
+from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
 from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title
 from pickmix.loader import Loader, Opened
@@ -45,6 +47,12 @@ class PickTab(QWidget):
         self.title = title()
         self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram.')
         self.status = QLabel()
+        self.tomo = TomoPane()
+        self.tomo.setMinimumWidth(200)
+        self.tomo_toggle = QToolButton()
+        self.tomo_toggle.setAutoRaise(True)
+        self.tomo_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tomo_toggle.clicked.connect(lambda: self.set_tomo_visible(self.tomo.isHidden()))
         self.kind_row = QHBoxLayout()
         self.kind_buttons: dict[str, QPushButton] = {}
         self.kind_toggles: dict[str, QPushButton] = {}
@@ -115,15 +123,33 @@ class PickTab(QWidget):
         bottom = QVBoxLayout()
         bottom.addLayout(picks_head)
         bottom.addWidget(self.table)
+        # picking area: kinds, canvas and settings, picks table
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addLayout(self.kind_row)
+        content_layout.addLayout(middle, 1)
+        content_layout.addLayout(bottom)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.addWidget(self.tomo)
+        self.splitter.addWidget(content)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([260, 1000])
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(self.title)
+        names.addWidget(self.help)
+        head = QHBoxLayout()
+        head.addWidget(self.tomo_toggle, alignment=Qt.AlignmentFlag.AlignTop)
+        head.addLayout(names, 1)
         layout = QVBoxLayout(self)
         tidy(layout)
-        layout.addWidget(self.title)
-        layout.addWidget(self.help)
-        layout.addSpacing(8)
-        layout.addLayout(self.kind_row)
-        layout.addLayout(middle, 1)
-        layout.addLayout(bottom)
+        layout.addLayout(head)
+        layout.addWidget(self.splitter, 1)
         layout.addWidget(self.status)
+        self.set_tomo_visible(True)
         self.z_slider.valueChanged.connect(self._show_z)
         self.lo_slider.valueChanged.connect(self._on_window)
         self.hi_slider.valueChanged.connect(self._on_window)
@@ -147,6 +173,7 @@ class PickTab(QWidget):
         # estimates arrive on the service's thread
         service.store.listeners.append(lambda: post(self._on_picks))
         session.goto_listeners.append(self._on_goto)
+        self.tomo.set_session(session)
         self.refresh_kinds()
         self._on_goto()
 
@@ -205,6 +232,7 @@ class PickTab(QWidget):
         else:
             self.active = None
         self._on_picks()
+        self.tomo.refresh()
 
     # show_pick: go to a pick, in whichever tomogram it is, and select it
     def show_pick(self, pick_id: int) -> None:
@@ -216,6 +244,16 @@ class PickTab(QWidget):
         self._want_select = pick_id
         if pick.tomogram != self.session.current:
             self.session.go(self.session.names.index(pick.tomogram))
+
+    # set_tomo_visible: show or hide the tomogram pane; the icon is the action the button takes
+    def set_tomo_visible(self, shown: bool) -> None:
+        self.tomo.setVisible(shown)
+        panel = icon('left_panel_close' if shown else 'left_panel_open')
+        if panel is None:
+            self.tomo_toggle.setText('<' if shown else '>')
+        else:
+            self.tomo_toggle.setIcon(panel)
+        self.tomo_toggle.setToolTip('Hide the tomogram list' if shown else 'Show the tomogram list')
 
     # delete_selected: remove the selected pick
     def delete_selected(self) -> None:

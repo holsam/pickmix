@@ -6,12 +6,11 @@ pickmix: main GUI window
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QDockWidget, QLineEdit, QMainWindow, QTabWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QMainWindow, QTabWidget
 
 # Import internal pickmix objects
 from pickmix.estimates import EstimateService
 from pickmix.gui.components.toast import install
-from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.gui.tabs.project_tab import ProjectTab
@@ -22,7 +21,7 @@ from pickmix.project import Project
 
 # MainWindow: tabs in workflow order; everything after Project waits for usable tomograms
 class MainWindow(QMainWindow):
-    # __init__: build the tabs and dock
+    # __init__: build the tabs
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle('pickmix')
@@ -37,23 +36,16 @@ class MainWindow(QMainWindow):
         self.pick_tab = PickTab()
         self.review_tab = ReviewTab()
         self.export_tab = ExportTab()
-        self.dock = TomoPane()
         self.tabs.addTab(self.project_tab, 'Project')
         self.tabs.addTab(self.pick_tab, 'Pick')
         self.tabs.addTab(self.review_tab, 'Review')
         self.tabs.addTab(self.export_tab, 'Export')
         self._set_enabled(session=False)
         self.setCentralWidget(self.tabs)
-        self.dock_widget = QDockWidget('Tomograms')
-        self.dock_widget.setWidget(self.dock)
-        self.dock_widget.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
-        self.dock_widget.hide()
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock_widget)
         self._restart = QTimer(self)
         self._restart.setSingleShot(True)
         self._restart.setInterval(500)
         self._restart.timeout.connect(self._restart_session)
-        self.tabs.currentChanged.connect(self._sync_dock)
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.config_saved.connect(self._on_settings)
         self.project_tab.project_closed.connect(self._on_closed)
@@ -65,6 +57,10 @@ class MainWindow(QMainWindow):
         for key in ('Delete', 'Backspace'):
             QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(self._delete_pick)
 
+    # open_config: open a config.toml in the Project tab
+    def open_config(self, path: Path) -> None:
+        self.project_tab.open_config(path)
+
     # keyPressEvent: Enter steps to the next tomogram and Shift+Enter to the previous. A text box handles Return first and ignores it, so a key reaching here was wanted by nothing else
     def keyPressEvent(self, event: QKeyEvent) -> None:
         mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
@@ -74,11 +70,7 @@ class MainWindow(QMainWindow):
             return
         super().keyPressEvent(event)
 
-    # open_config: open a config.toml in the Project tab
-    def open_config(self, path: Path) -> None:
-        self.project_tab.open_config(path)
-
-    # _step: Enter and Shift+Enter move between tomograms on the Pick tab, unless a text box has focus
+    # _step: move between tomograms on the Pick tab, unless a text box has focus
     def _step(self, delta: int) -> None:
         if self.session is None or self.tabs.currentWidget() is not self.pick_tab:
             return
@@ -88,7 +80,10 @@ class MainWindow(QMainWindow):
 
     # _picking: whether Pick tab keys apply: a session, the Pick tab showing and no text box (a spin box counts as one) being typed into
     def _picking(self) -> bool:
-        return (self.session is not None and self.tabs.currentWidget() is self.pick_tab and not isinstance(QApplication.focusWidget(), QLineEdit))
+        return (
+            self.session is not None and self.tabs.currentWidget() is self.pick_tab
+            and not isinstance(QApplication.focusWidget(), QLineEdit)
+        )
 
     # _hotkey: the number key for the i-th kind, from wherever focus is
     def _hotkey(self, i: int) -> None:
@@ -99,10 +94,6 @@ class MainWindow(QMainWindow):
     def _delete_pick(self) -> None:
         if self._picking():
             self.pick_tab.delete_selected()
-
-    # _sync_dock: the tomogram dock is only for the Pick tab, and only with a session
-    def _sync_dock(self) -> None:
-        self.dock_widget.setVisible(self.session is not None and self.tabs.currentWidget() is self.pick_tab)
 
     # _set_enabled: Project is always usable; Pick, Review and Export need a session
     def _set_enabled(self, *, session: bool) -> None:
@@ -120,14 +111,12 @@ class MainWindow(QMainWindow):
             self.pick_tab.set_session(self.session, self.loader, self.service)
             self.review_tab.set_session(self.session, self.loader, self.service)
             self.export_tab.set_session(self.session, self.loader, self.service)
-            self.dock.set_session(self.session)
             self.kinds_pane.set_session(self.session, self.service)
         else:
             self.session = self.loader = self.service = None
             self.kinds_pane.set_session(None, None)
             self.export_tab.clear()
         self._set_enabled(session=self.session is not None)
-        self._sync_dock()
 
     # _shutdown: stop the estimate service and loader of the current project, if any
     def _shutdown(self) -> None:
@@ -147,7 +136,6 @@ class MainWindow(QMainWindow):
         self.export_tab.clear()
         self._set_enabled(session=False)
         self.tabs.setCurrentWidget(self.project_tab)
-        self._sync_dock()
 
     # _on_settings: source or estimator settings changed; rebuild once the changes stop, as they save on every edit
     def _on_settings(self) -> None:
@@ -163,7 +151,6 @@ class MainWindow(QMainWindow):
         self.pick_tab.refresh_kinds()
         self.review_tab.refresh_kinds()
         self.export_tab.refresh_kinds()
-        self.dock.refresh()
 
     # _open_pick: show a pick from the Review tab in the Pick tab
     def _open_pick(self, _tomogram: str, pick_id: int) -> None:

@@ -201,3 +201,19 @@ class TestPickTab:
         assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
         header = tab.table.horizontalHeader()
         assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.ResizeToContents and header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+
+    # test_tomo_pane_toggle: the tomogram pane sits in the tab and its button hides and shows it
+    def test_tomo_pane_toggle(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup(THREE)
+        assert tab.splitter.indexOf(tab.tomo) == 0 and not tab.tomo.isHidden()
+        assert tab.tomo.list.count() == 3
+        tab.tomo_toggle.click()
+        assert tab.tomo.isHidden()
+        tab.tomo_toggle.click()
+        assert not tab.tomo.isHidden()
+
+    # test_tomo_pane_navigates: choosing a tomogram in the pane changes the tomogram shown
+    def test_tomo_pane_navigates(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup(THREE)
+        tab.tomo._clicked(tab.tomo.list.item(2))
+        assert session.current == 'Other_9' and tab.title.text() == 'Other_9'
