@@ -19,6 +19,7 @@ from pickmix.gui.panes.average_pane import AveragePane
 from pickmix.gui.panes.kinds_pane import KindsPane
 from pickmix.gui.panes.settings_pane import NO_KIND, SettingsPane
 from pickmix.gui.panes.tomo_pane import COLOUR_CURRENT, COLOUR_PENDING, COLOUR_VISITED, TomoPane
+from pickmix.gui.panes.tomograms_pane import TomogramsPane, tomogram_status
 from pickmix.gui.panes.welcome_pane import WelcomePane
 from pickmix.loader import Loader
 from pickmix.model import PickStore, Session
@@ -437,3 +438,41 @@ class TestWelcomePane:
         shortcut = next(s for s in pane.findChildren(QShortcut) if s.key().toString() == 'Ctrl+O')
         with qtbot.assertNotEmitted(pane.open_button.clicked):
             shortcut.activated.emit()
+
+# TestTomogramsPane: tomograms pane
+class TestTomogramsPane:
+    # test_rows_and_summary: usable tomograms are listed, counted and unmarked
+    def test_rows_and_summary(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane = TomogramsPane()
+        qtbot.addWidget(pane)
+        pane.set_project(open_project(make_config()))
+        assert pane.table.rowCount() == 1 and pane.table.item(0, 1).text() == 'Position_1_2'
+        assert pane.table.item(0, 0).icon().isNull() and pane.table.item(0, 0).text() == ''
+        assert not pane.table.item(0, 4).icon().isNull()
+        assert pane.summary.text() == '1 total (1 denoised), 0 rejected'
+
+    # test_rejected_row: a rejected tomogram gets an error marker with its reason and greyed text
+    def test_rejected_row(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane = TomogramsPane()
+        qtbot.addWidget(pane)
+        pane.set_project(open_project(make_config(shape=(4, 6, 20))))
+        assert not pane.table.item(0, 0).icon().isNull() and 'shape mismatch' in pane.table.item(0, 0).toolTip()
+        assert pane.table.item(0, 2).text() == '(4, 6, 20)'
+        assert pane.summary.text() == '1 total (0 denoised), 1 rejected'
+
+    # test_warning_without_denoised: a usable tomogram with no denoised pair is marked
+    def test_warning_without_denoised(self, make_config: Callable[..., Path]) -> None:
+        project = open_project(make_config(names=('A_1', 'B_2')))
+        (project.config.denoised_dir / 'nt_raw4_B_2_stack_Vol.denoised.mrc').unlink()
+        project = open_project(project.path)
+        assert tomogram_status(project, 'A_1') == (None, '')
+        status, tip = tomogram_status(project, 'B_2')
+        assert status == 'warn' and 'denoised' in tip
+
+    # test_marker_column_fixed: the marker column has no heading and a fixed width, so names align
+    def test_marker_column_fixed(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane = TomogramsPane()
+        qtbot.addWidget(pane)
+        pane.set_project(open_project(make_config(names=('A_1', 'B_2'))))
+        assert pane.table.horizontalHeaderItem(0).text() == '' and pane.table.columnWidth(0) == 28
+        assert not pane.table.verticalHeader().isVisible() and not pane.table.showGrid()

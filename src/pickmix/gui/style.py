@@ -4,7 +4,7 @@ pickmix: shared GUI text levels and spacing
 
 # Import external dependencies
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QTableWidget, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.components.icons import icon, tinted
@@ -12,6 +12,9 @@ from pickmix.gui.components.icons import icon, tinted
 # MARGIN, SPACING: outer margin and gap between widgets, pixels
 MARGIN: int = 8
 SPACING: int = 6
+
+# CELL_PADDING: horizontal padding in pixels inside every table cell and heading
+CELL_PADDING: int = 14
 
 # RADIUS: corner radius of rounded buttons, pixels
 RADIUS: int = 16
@@ -154,6 +157,10 @@ def image_well(label: QLabel, size: int) -> None:
     label.setFixedSize(size, size)
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     label.setStyleSheet(f'background: {WELL_BG}; color: {WELL_TEXT}')
+
+# pad_cells: the quiet table look, with padded cells and headings, no heading borders and left-aligned heading text
+def pad_cells(table: QTableWidget) -> None:
+    table.setStyleSheet(f'QTableWidget::item {{ padding: 0 {CELL_PADDING}px; }} QHeaderView::section {{ padding: 4px {CELL_PADDING}px; border: none; text-align: left; }}')
 
 # _styled: a label in the application font shifted by step points
 def _styled(text: str, step: float, *, bold: bool) -> QLabel:
