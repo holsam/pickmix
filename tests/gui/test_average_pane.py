@@ -11,7 +11,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimates import EstimateService
-from pickmix.gui.average_pane import AveragePane
+from pickmix.gui.panes.average_pane import AveragePane
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import open_project

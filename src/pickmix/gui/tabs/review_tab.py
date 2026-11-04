@@ -17,7 +17,7 @@ from pickmix.estimates import EstimateService
 from pickmix.export import Item, export_kind, recommend_box
 from pickmix.extract import extract_kind
 from pickmix.geometry import Parent, match_parents
-from pickmix.gui.images import to_pixmap
+from pickmix.gui.components.images import to_pixmap
 from pickmix.gui.style import tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.loader import Loader

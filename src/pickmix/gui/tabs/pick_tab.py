@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 # Import internal pickmix objects
 from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
-from pickmix.gui.canvas import FitView, Marker, SliceCanvas
+from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.workers import post
 from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title
 from pickmix.loader import Loader, Opened

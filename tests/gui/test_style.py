@@ -8,10 +8,10 @@ from pytestqt.qtbot import QtBot
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
-from pickmix.gui.kinds_tab import KindsTab
-from pickmix.gui.pick_tab import PickTab
-from pickmix.gui.project_tab import ProjectTab
-from pickmix.gui.review_tab import ReviewTab
+from pickmix.gui.tabs.kinds_tab import KindsTab
+from pickmix.gui.tabs.pick_tab import PickTab
+from pickmix.gui.tabs.project_tab import ProjectTab
+from pickmix.gui.tabs.review_tab import ReviewTab
 from pickmix.gui.style import MARGIN, SPACING, body_pt, form_label, heading, help_marker, hint, icon, standardise, tidy, title
 
 # TestStyle: shared text levels and spacing

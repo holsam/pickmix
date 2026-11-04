@@ -7,7 +7,7 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
-from pickmix.gui.kind_dialog import DELETED, KindDialog
+from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 
 # _ok: a check that accepts anything
 def _ok(_name: str, _kind: Kind) -> str | None:

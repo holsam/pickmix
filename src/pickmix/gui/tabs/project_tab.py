@@ -14,8 +14,8 @@ from PySide6.QtWidgets import (
 
 # Import internal pickmix objects
 from pickmix.config import RingParams
-from pickmix.gui.collapsible import Collapsible
-from pickmix.gui.new_project_dialog import NewProjectDialog
+from pickmix.gui.components.collapsible import Collapsible
+from pickmix.gui.dialogs.new_project_dialog import NewProjectDialog
 from pickmix.gui.style import form_label, heading, tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.project import Project, create_project, open_project

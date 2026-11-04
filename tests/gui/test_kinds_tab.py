@@ -9,8 +9,8 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind, load_config
-from pickmix.gui.kind_dialog import DELETED, KindDialog
-from pickmix.gui.kinds_tab import KindsTab
+from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
+from pickmix.gui.tabs.kinds_tab import KindsTab
 from pickmix.model import PickStore, Session
 from pickmix.project import open_project
 
@@ -192,11 +192,11 @@ class TestKindsTab:
         tab.resize(900, 600)
         tab.show()
         position = lambda i: tab.grid.getItemPosition(tab.grid.indexOf(tab.cards[i]))[:2]
-        monkeypatch.setattr('pickmix.gui.kinds_tab._CARD_WIDTH', 10000)
+        monkeypatch.setattr('pickmix.gui.tabs.kinds_tab._CARD_WIDTH', 10000)
         tab._columns = 0
         tab._reflow()
         assert tab._columns == 1 and [position(i) for i in range(3)] == [(0, 0), (1, 0), (2, 0)]
-        monkeypatch.setattr('pickmix.gui.kinds_tab._CARD_WIDTH', 100)
+        monkeypatch.setattr('pickmix.gui.tabs.kinds_tab._CARD_WIDTH', 100)
         tab._reflow()
         assert tab._columns >= 3 and [position(i) for i in range(3)] == [(0, 0), (0, 1), (0, 2)]
 

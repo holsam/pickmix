@@ -10,30 +10,8 @@ from PySide6.QtWidgets import (
 )
 
 # Import internal pickmix objects
+from pickmix.gui.components.path_field import PathField
 from pickmix.gui.style import tidy
-
-# PathField: a line edit with a browse button for a directory
-class PathField(QWidget):
-    # __init__: build the field
-    def __init__(self) -> None:
-        super().__init__()
-        self.edit = QLineEdit()
-        button = QPushButton('Browse...')
-        button.clicked.connect(self._browse)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.edit)
-        layout.addWidget(button)
-
-    # text: the entered path, stripped
-    def text(self) -> str:
-        return self.edit.text().strip()
-
-    # _browse: pick a directory
-    def _browse(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, 'Choose directory', self.text())
-        if chosen:
-            self.edit.setText(chosen)
 
 # NewProjectDialog: runs table plus directories; values() is the argument set for create_project
 class NewProjectDialog(QDialog):

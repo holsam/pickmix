@@ -12,7 +12,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimates import EstimateService
-from pickmix.gui.review_tab import ReviewTab
+from pickmix.gui.tabs.review_tab import ReviewTab
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import open_project
