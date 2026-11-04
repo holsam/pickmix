@@ -17,6 +17,7 @@ from pickmix.estimates import EstimateService
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 from pickmix.gui.panes.average_pane import AveragePane
 from pickmix.gui.panes.kinds_pane import KindsPane
+from pickmix.gui.panes.settings_pane import NO_KIND, SettingsPane
 from pickmix.gui.panes.tomo_pane import COLOUR_CURRENT, COLOUR_PENDING, COLOUR_VISITED, TomoPane
 from pickmix.gui.panes.welcome_pane import WelcomePane
 from pickmix.loader import Loader
@@ -52,6 +53,14 @@ def _kinds_pane_with_picks(qtbot: QtBot, make_config: Callable[..., Path]) -> tu
     pane.set_project(project)
     pane.set_session(session, None)
     return pane, path, session
+
+# _settings_pane: a settings pane showing a fresh project; returns the pane and the config path
+def _settings_pane(qtbot: QtBot, make_config: Callable[..., Path]) -> tuple[SettingsPane, Path]:
+    path = make_config()
+    pane = SettingsPane()
+    qtbot.addWidget(pane)
+    pane.set_project(open_project(path))
+    return pane, path
 
 # _tomo_pane: a pane over a three-tomogram session
 def _tomo_pane(qtbot: QtBot, make_config: Callable[..., Path]) -> tuple[TomoPane, Session]:
@@ -268,6 +277,85 @@ class TestKindsPane:
         pane.show()
         qtbot.waitUntil(lambda: pane.add_button.isVisible())
         assert pane.add_button.mapTo(pane, pane.add_button.rect().topRight()).x() > pane.scroll.mapTo(pane, pane.scroll.rect().center()).x()
+
+# TestSettingsPane: settings pane
+class TestSettingsPane:
+    # test_shows_project: source and ring values come from the config, and showing them saves nothing
+    def test_shows_project(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        before = path.read_text()
+        pane = SettingsPane()
+        qtbot.addWidget(pane)
+        with qtbot.assertNotEmitted(pane.config_saved):
+            pane.set_project(open_project(path))
+        assert pane.source_box.currentText() == 'denoised' and pane.ring_form.get().radius_step_a == 25.0
+        assert path.read_text() == before
+
+    # test_source_autosaves: choosing a source writes config.toml and announces it
+    def test_source_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        with qtbot.waitSignal(pane.config_saved):
+            pane.source_box.setCurrentText('raw')
+        assert load_config(path).source == 'raw'
+
+    # test_ring_value_autosaves: a committed ring value is written, the others are kept
+    def test_ring_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        with qtbot.waitSignal(pane.config_saved):
+            pane.ring_form._boxes['radius_step_a'][0].setValue(50.0)
+        config = load_config(path)
+        assert config.ring.radius_step_a == 50.0 and config.ring.radius_range_a == (150.0, 500.0)
+
+    # test_no_save_button: there is nothing to press
+    def test_no_save_button(self, qtbot: QtBot) -> None:
+        pane = SettingsPane()
+        qtbot.addWidget(pane)
+        assert not hasattr(pane, 'save_button')
+
+    # test_hotkey_defaults: keys start on the kinds in order, the rest are unused
+    def test_hotkey_defaults(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _ = _settings_pane(qtbot, make_config)
+        assert [b.currentText() for b in pane.hotkey_boxes] == ['cage', *[NO_KIND] * 8]
+        assert pane.hotkey_boxes[1].itemText(0) == NO_KIND and pane.hotkey_boxes[1].count() == 2
+
+    # test_hotkey_change_saves: choosing a kind for a key saves it and moves the kind off its old key
+    def test_hotkey_change_saves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        with qtbot.waitSignal(pane.hotkeys_saved):
+            pane.hotkey_boxes[2].setCurrentText('cage')
+        assert load_config(path).hotkeys == ['', '', 'cage', *[''] * 6]
+        assert pane.hotkey_boxes[0].currentText() == NO_KIND
+
+    # test_refresh_hotkeys: new kinds appear in the dropdowns after the project changes
+    def test_refresh_hotkeys(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _ = _settings_pane(qtbot, make_config)
+        pane.project.update(kinds={'cage': Kind(marker_a=600, box_a=700), 'yellow': Kind(marker_a=100, box_a=100)}, hotkeys=['cage', 'yellow'])
+        pane.refresh_hotkeys()
+        assert pane.hotkey_boxes[1].currentText() == 'yellow' and pane.hotkey_boxes[5].count() == 3
+
+    # test_form_labels: parameters show their title and explain themselves on hover
+    def test_form_labels(self, qtbot: QtBot) -> None:
+        pane = SettingsPane()
+        qtbot.addWidget(pane)
+        label = pane.ring_form.labels['radius_range_a']
+        assert label.text() == 'Radius range (Å)' and label.toolTip()
+        assert len(pane.ring_form._boxes['radius_range_a']) == 2
+
+    # test_ring_section_collapsed: ring parameters are hidden until the section is opened
+    def test_ring_section_collapsed(self, qtbot: QtBot) -> None:
+        pane = SettingsPane()
+        qtbot.addWidget(pane)
+        assert pane.ring_form.isHidden()
+        pane.ring_section.toggle.setChecked(True)
+        assert not pane.ring_form.isHidden()
+
+    # test_width_fixed: opening the ring section does not change the pane's minimum width
+    def test_width_fixed(self, qtbot: QtBot) -> None:
+        pane = SettingsPane()
+        qtbot.addWidget(pane)
+        closed = pane.minimumSizeHint().width()
+        pane.ring_section.toggle.setChecked(True)
+        assert pane.minimumSizeHint().width() == closed
 
 # TestTomoPane: tomogram dock
 class TestTomoPane:
