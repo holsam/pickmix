@@ -3,11 +3,11 @@ pickmix: shared GUI text levels and spacing
 '''
 
 # Import external dependencies
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QWidget
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
-from pickmix.gui.components.icons import icon
+from pickmix.gui.components.icons import icon, tinted
 
 # MARGIN, SPACING: outer margin and gap between widgets, pixels
 MARGIN: int = 8
@@ -15,6 +15,23 @@ SPACING: int = 6
 
 # RADIUS: corner radius of rounded buttons, pixels
 RADIUS: int = 16
+
+# BIG_ICON, BIG_GAP: edge in pixels of the icon on a big button, and the pixels between it and the text
+BIG_ICON: int = 48
+BIG_GAP: int = 8
+
+# OK, WARN, ERROR, RUNNING: state colours, shared by status icons, table marks and anything else that shows a state
+OK: str = '#90a959'
+WARN: str = '#e9b872'
+ERROR: str = '#a63d40'
+RUNNING: str = '#6494aa'
+
+# MUTED: grey of hints and of anything dimmed or unavailable
+MUTED: str = '#808080'
+
+# WELL_BG, WELL_TEXT: dark backdrop and dim placeholder text of the frames that hold images
+WELL_BG: str = '#141414'
+WELL_TEXT: str = '#888'
 
 # TITLE_STEP, HEADING_STEP, HINT_STEP: point-size offsets from the application font for each text level
 TITLE_STEP: float = 4.0
@@ -82,8 +99,12 @@ def heading(text: str = '') -> QLabel:
 # hint: small grey label, for help text
 def hint(text: str = '') -> QLabel:
     label = _styled(text, HINT_STEP, bold=False)
-    label.setStyleSheet('color: gray')
+    label.setStyleSheet(f'color: {MUTED}')
     return label
+
+# error_look: the error colour for a label that shows a problem
+def error_look(label: QLabel) -> None:
+    label.setStyleSheet(f'color: {ERROR}')
 
 # bold_safe: style a checkable text button so it is bold when checked without changing its width
 def bold_safe(button: QPushButton) -> None:
@@ -101,6 +122,38 @@ def rounded(button: QPushButton) -> None:
         'QPushButton:hover { background: palette(midlight); }'
         'QPushButton:pressed { background: palette(mid); }'
     )
+
+# toast_look: dark translucent rounded box with white text
+def toast_look(label: QLabel) -> None:
+    label.setStyleSheet('background: rgba(40, 40, 40, 230); color: white; border-radius: 6px; padding: 8px 12px;')
+
+# big_button: icon over text with a fixed gap when the icon file exists, text alone otherwise
+def big_button(text: str, stem: str) -> QPushButton:
+    button = QPushButton()
+    button.setMinimumSize(200, 150)
+    rounded(button)
+    inner = QVBoxLayout(button)
+    inner.setSpacing(BIG_GAP)
+    inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    found = tinted(stem, colour='#ffffff', size=BIG_ICON)
+    if found is not None:
+        picture = QLabel()
+        picture.setPixmap(found.pixmap(QSize(BIG_ICON, BIG_ICON)))
+        picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        inner.addWidget(picture)
+    label = heading(text)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    inner.addWidget(label)
+    # clicks fall through to the button
+    for child in button.findChildren(QLabel):
+        child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    return button
+
+# image_well: a fixed square frame for an image, dark with its placeholder text centred
+def image_well(label: QLabel, size: int) -> None:
+    label.setFixedSize(size, size)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    label.setStyleSheet(f'background: {WELL_BG}; color: {WELL_TEXT}')
 
 # _styled: a label in the application font shifted by step points
 def _styled(text: str, step: float, *, bold: bool) -> QLabel:

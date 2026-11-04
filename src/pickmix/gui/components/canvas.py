@@ -9,6 +9,9 @@ from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
+# Import internal pickmix objects
+from pickmix.gui.style import WELL_BG
+
 # _HIT_PX: screen distance from a marker centre that counts as clicking it
 _HIT_PX: float = 6.0
 
@@ -78,7 +81,7 @@ class SliceCanvas(QGraphicsView):
         self._wheel = 0
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.setBackgroundBrush(QColor(20, 20, 20))
+        self.setBackgroundBrush(QColor(WELL_BG))
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
     # has_image: whether a slice is showing

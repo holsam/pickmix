@@ -7,6 +7,9 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QWidget
 from shiboken6 import isValid
 
+# Import internal pickmix objects
+from pickmix.gui.style import toast_look
+
 # _SHOWN_LINES: most lines of a message the toast shows; stdout always gets all of it
 _SHOWN_LINES: int = 3
 
@@ -18,7 +21,7 @@ class Toast(QLabel):
     # __init__: hidden until a message is shown
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
-        self.setStyleSheet('background: rgba(40, 40, 40, 230); color: white; border-radius: 6px; padding: 8px 12px;')
+        toast_look(self)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.hide)

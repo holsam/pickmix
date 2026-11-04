@@ -15,6 +15,7 @@ from pickmix.gui.components.icons import ICON_DIR, icon, tinted
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, status_item
 from pickmix.gui.components.toast import notify
+from pickmix.gui.style import OK
 from pickmix.gui.main_window import MainWindow
 
 # STEMS: bundled icons
@@ -153,11 +154,12 @@ class TestIcons:
     def test_missing(self) -> None:
         assert icon('no_such_icon') is None and tinted('no_such_icon', '#ff0000') is None
 
-    # test_tinted: opaque pixels take the colour asked for
+    # test_tinted: opaque pixels take the colour asked for, give or take rounding at the antialiased edge
     def test_tinted(self, qtbot: QtBot) -> None:
-        image = tinted('check', '#2e9e44').pixmap(16, 16).toImage()
+        want = QColor(OK).getRgb()[:3]
+        image = tinted('check', OK).pixmap(16, 16).toImage()
         opaque = [image.pixelColor(x, y) for x in range(16) for y in range(16) if image.pixelColor(x, y).alpha() > 200]
-        assert opaque and all(c.name() == '#2e9e44' for c in opaque)
+        assert opaque and all(max(abs(a - b) for a, b in zip(c.getRgb()[:3], want)) <= 4 for c in opaque)
 
 # TestRangeSlider: two-handle slider
 class TestRangeSlider:

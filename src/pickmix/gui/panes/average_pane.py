@@ -3,7 +3,6 @@ pickmix: Average pane of the Kinds tab
 '''
 
 # Import external dependencies
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import QComboBox, QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton, QVBoxLayout
 
@@ -12,7 +11,7 @@ from pickmix.average import AverageResult, average_kind
 from pickmix.estimates import EstimateService
 from pickmix.export import Item
 from pickmix.gui.components.images import to_pixmap
-from pickmix.gui.style import tidy
+from pickmix.gui.style import image_well, tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.model import Session
 
@@ -34,9 +33,7 @@ class AveragePane(QGroupBox):
         self.mean_label = QLabel('mean')
         self.montage_label = QLabel('montage')
         for label in (self.mean_label, self.montage_label):
-            label.setFixedSize(_SIZE, _SIZE)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setStyleSheet('background: #141414; color: #888')
+            image_well(label, _SIZE)
         self.results_list = QListWidget()
         self.results_list.setMaximumWidth(220)
         # kind, summary and console above the images

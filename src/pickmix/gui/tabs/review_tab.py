@@ -4,7 +4,7 @@ pickmix: Review tab, every pick with filters and a preview of the selected pick
 
 # Import external dependencies
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -16,7 +16,7 @@ from pickmix.estimates import EstimateService
 from pickmix.export import Item
 from pickmix.geometry import Parent
 from pickmix.gui.components.images import to_pixmap
-from pickmix.gui.style import tidy
+from pickmix.gui.style import image_well, tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
@@ -69,9 +69,7 @@ class ReviewTab(QWidget):
         self.xy_label = QLabel('xy')
         self.xz_label = QLabel('xz')
         for label in (self.xy_label, self.xz_label):
-            label.setFixedSize(_PREVIEW, _PREVIEW)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            label.setStyleSheet('background: #141414; color: #888')
+            image_well(label, _PREVIEW)
         filters = QHBoxLayout()
         for text, widget in (('Kind', self.kind_filter), ('Tomogram', self.tomo_filter), ('Min SNR', self.snr_spin)):
             filters.addWidget(QLabel(text))

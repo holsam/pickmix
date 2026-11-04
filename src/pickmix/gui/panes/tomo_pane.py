@@ -7,12 +7,13 @@ from PySide6.QtGui import QColor, QFontDatabase
 from PySide6.QtWidgets import QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
+from pickmix.gui.style import OK, RUNNING, WARN
 from pickmix.model import Session
 
 # COLOUR_VISITED, COLOUR_PENDING, COLOUR_CURRENT: line colours for opened, not yet opened and current tomograms
-COLOUR_VISITED: QColor = QColor('#2e9e44')
-COLOUR_PENDING: QColor = QColor('#e08a00')
-COLOUR_CURRENT: QColor = QColor('#2f7fe0')
+COLOUR_VISITED: QColor = QColor(OK)
+COLOUR_PENDING: QColor = QColor(WARN)
+COLOUR_CURRENT: QColor = QColor(RUNNING)
 
 # TomoPane: one line per tomogram with number, name and picks, coloured by state
 class TomoPane(QWidget):

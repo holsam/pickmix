@@ -8,14 +8,14 @@ from collections.abc import Callable
 from pydantic import ValidationError
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
+    QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimate.registry import ESTIMATORS
-from pickmix.gui.style import form_label, tidy
+from pickmix.gui.style import error_look, form_label, tidy
 
 # DELETED: result code of the dialog when the user chose to delete the kind
 DELETED: int = 2
@@ -63,7 +63,7 @@ class KindDialog(QDialog):
         self.tilt_box.toggled.connect(self.tilt_spin.setEnabled)
         self.angpix_spin = _spin(kind.extract_angpix, minimum=0.01)
         self.error = QLabel()
-        self.error.setStyleSheet('color: #b00020')
+        error_look(self.error)
         self.error.setWordWrap(True)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
