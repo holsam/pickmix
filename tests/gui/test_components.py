@@ -304,6 +304,17 @@ class TestToast:
         assert window.toast.text() == 'line 0\nline 1\nline 2\n...'
         assert 'line 5' in capsys.readouterr().out
 
+    # test_saved_gets_a_tick: a saved message starts with a green tick and is escaped, a plain one has no tick, and stdout never has it
+    def test_saved_gets_a_tick(self, qtbot: QtBot, capsys) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        notify('<b>x</b>', saved=True)
+        assert '✓' in window.toast.text() and '&lt;b&gt;' in window.toast.text() and OK in window.toast.text()
+        notify('<b>x</b>')
+        assert window.toast.text() == '<b>x</b>'
+        assert '✓' not in capsys.readouterr().out
+
     # test_hides_itself: the toast goes away after its time
     def test_hides_itself(self, qtbot: QtBot) -> None:
         window = MainWindow()

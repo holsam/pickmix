@@ -254,14 +254,14 @@ class ExportTab(QWidget):
         self._sync_buttons()
         self.spinner.set_status('running', message)
         settings = self._settings()
-        run_in_background(lambda: job(settings), self._logged, lambda error: self._logged([error]))
+        run_in_background(lambda: job(settings), self._logged, lambda error: self._logged([error], saved=False))
 
-    # _logged: report job output and unblock the buttons
-    def _logged(self, lines: list[str]) -> None:
+    # _logged: report job output and unblock the buttons; saved says the job finished rather than failed
+    def _logged(self, lines: list[str], *, saved: bool = True) -> None:
         self._running = False
         self.spinner.set_status(None)
         self._sync_buttons()
-        notify('\n'.join(lines))
+        notify('\n'.join(lines), saved=saved)
 
     # _sync_buttons: nothing runs twice at once, and Export needs a format ticked
     def _sync_buttons(self) -> None:

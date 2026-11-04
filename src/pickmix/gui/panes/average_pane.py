@@ -131,7 +131,7 @@ class AveragePane(QGroupBox):
         image = to_image(r.montage)
         image.save(str(plain))
         label_cells(image, r.labels, r.grid, r.pad).save(str(labelled))
-        notify(f'Saved {str(plain)!r} and {str(labelled)!r}')
+        notify(f'Saved {str(plain)!r} and {str(labelled)!r}', saved=True)
         return [str(plain), str(labelled)]
 
     # _update_summary: total picks, tomograms with picks and picks per tomogram for the chosen kind
