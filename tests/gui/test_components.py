@@ -13,6 +13,8 @@ from pytestqt.qtbot import QtBot
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, status_item
+from pickmix.gui.components.toast import notify
+from pickmix.gui.main_window import MainWindow
 
 # STEMS: bundled icons
 STEMS: list[str] = [
@@ -175,3 +177,38 @@ class TestStatus:
         assert not badge._timer.isActive() and badge.toolTip() == 'fine'
         badge.set_status(None)
         assert badge.pixmap().isNull() and badge.text() == ''
+
+# TestToast: toast and notify
+class TestToast:
+    # test_notify_prints_and_shows: the message goes to stdout and the toast
+    def test_notify_prints_and_shows(self, qtbot: QtBot, capsys) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        notify('Saved 3 files')
+        assert 'Saved 3 files' in capsys.readouterr().out
+        assert window.toast.isVisible() and window.toast.text() == 'Saved 3 files'
+
+    # test_long_message_cut: only the first lines show, stdout has them all
+    def test_long_message_cut(self, qtbot: QtBot, capsys) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        notify('\n'.join(f'line {i}' for i in range(6)))
+        assert window.toast.text() == 'line 0\nline 1\nline 2\n...'
+        assert 'line 5' in capsys.readouterr().out
+
+    # test_hides_itself: the toast goes away after its time
+    def test_hides_itself(self, qtbot: QtBot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        window.toast.show_message('bye', ms=50)
+        qtbot.waitUntil(lambda: not window.toast.isVisible(), timeout=2000)
+
+    # test_without_window: notify only prints when no toast exists
+    def test_without_window(self, capsys) -> None:
+        import pickmix.gui.components.toast as toast
+        toast._toast = None
+        notify('plain')
+        assert 'plain' in capsys.readouterr().out

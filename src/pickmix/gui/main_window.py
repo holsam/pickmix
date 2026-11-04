@@ -9,6 +9,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QDockWidget, QLineEdit, QMainWindow, QTabWidget
 
 # Import internal pickmix objects
+from pickmix.gui.components.toast import install
 from pickmix.gui.tabs.kinds_tab import KindsTab
 from pickmix.estimates import EstimateService
 from pickmix.gui.tabs.pick_tab import PickTab
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
         self.project_tab.project_closed.connect(self._on_closed)
         self.kinds_tab.config_saved.connect(self._on_kinds)
         self.review_tab.open_pick.connect(self._open_pick)
+        self.toast = install(self)
         for keys, delta in (('Return', 1), ('Enter', 1), ('Shift+Return', -1), ('Shift+Enter', -1)):
             shortcut = QShortcut(QKeySequence(keys), self, context=Qt.ShortcutContext.WindowShortcut)
             shortcut.activated.connect(lambda delta=delta: self._step(delta))
