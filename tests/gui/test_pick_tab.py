@@ -226,7 +226,7 @@ class TestPickTab:
     def test_layout(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, _ = setup()
         assert tab.z_slider.orientation() == Qt.Orientation.Vertical and tab.settings.width() <= 220
-        for widget in (tab.contrast, tab.brightness, tab.auto_box, tab.invert_box, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box, *tab.kind_buttons.values()):
+        for widget in (tab.contrast, tab.brightness, tab.auto_box, tab.invert_box, tab.fit_button, tab.fill_button, tab.rings_box, tab.boxes_box, tab.normals_box, *tab.kind_buttons.values()):
             assert tab.settings.isAncestorOf(widget)
         assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
         header = tab.table.horizontalHeader()
@@ -269,3 +269,13 @@ class TestPickTab:
     def test_delete_icon(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, _ = setup()
         assert not tab.delete_button.icon().isNull() and tab.delete_button.toolTip()
+
+    # test_fit_and_fill_buttons: both buttons act on the canvas view
+    def test_fit_and_fill_buttons(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        tab.resize(900, 600)
+        tab.show()
+        tab.fit_button.click()
+        fit_scale = tab.canvas.transform().m11()
+        tab.fill_button.click()
+        assert tab.canvas.transform().m11() >= fit_scale

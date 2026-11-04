@@ -75,6 +75,7 @@ class PickTab(QWidget):
             box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.invert_box = QCheckBox('Invert')
         self.fit_button = QPushButton('Fit')
+        self.fill_button = QPushButton('Fill')
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(['', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -93,7 +94,7 @@ class PickTab(QWidget):
         else:
             self.delete_button.setIcon(trash)
         self.delete_button.setToolTip('Delete the selected pick (Delete)')
-        for button in (self.fit_button, self.delete_button):
+        for button in (self.fit_button, self.fill_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._row_ids: list[int] = []
         # settings pane on the right: image controls, what to show, then the kinds
@@ -105,7 +106,10 @@ class PickTab(QWidget):
         checks.addWidget(self.auto_box)
         checks.addWidget(self.invert_box)
         image_form.addRow(checks)
-        image_form.addRow(self.fit_button)
+        fit_row = QHBoxLayout()
+        fit_row.addWidget(self.fit_button)
+        fit_row.addWidget(self.fill_button)
+        image_form.addRow(fit_row)
         view = QGroupBox('View')
         view_grid = QGridLayout(view)
         for i, box in enumerate((self.rings_box, self.boxes_box, self.normals_box)):
@@ -172,6 +176,9 @@ class PickTab(QWidget):
         self.boxes_box.toggled.connect(self._on_overlay)
         self.normals_box.toggled.connect(self._on_overlay)
         self.fit_button.clicked.connect(self.canvas.fit)
+        self.fit_button.setToolTip('Zoom to show entire tomogram')
+        self.fill_button.clicked.connect(self.canvas.fill)
+        self.fill_button.setToolTip('Zoom tomogram to fill')
         self.delete_button.clicked.connect(self.delete_selected)
         self.canvas.add_requested.connect(self._add)
         self.canvas.move_requested.connect(self._move)

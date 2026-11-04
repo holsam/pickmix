@@ -183,6 +183,10 @@ class SliceCanvas(QGraphicsView):
     def fit(self) -> None:
         self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
+    # fill: zoom to cover whole canvas
+    def fill(self) -> None:
+        self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)
+
     # mousePressEvent: pan, select or drag a marker, or request a new pick
     def mousePressEvent(self, event: QMouseEvent) -> None:
         pos = self.mapToScene(event.position().toPoint())

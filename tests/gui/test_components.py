@@ -143,6 +143,19 @@ class TestCanvas:
         canvas.set_overlay(rings=True, boxes=True, normals=False)
         assert not canvas.normal_visible(1)
 
+    # test_fill_covers_canvas: fill zooms in further than fit when the slice and canvas shapes differ
+    def test_fill_covers_canvas(self, qtbot: QtBot) -> None:
+        canvas = SliceCanvas()
+        qtbot.addWidget(canvas)
+        canvas.resize(400, 200)
+        canvas.show()
+        qtbot.waitExposed(canvas)
+        canvas.set_image(np.zeros((6, 8), dtype=np.float32), 0.0, 1.0)
+        canvas.fit()
+        fit_scale = canvas.transform().m11()
+        canvas.fill()
+        assert canvas.transform().m11() > fit_scale
+
 # TestIcons: icon loading and tinting
 class TestIcons:
     # test_bundled: every icon the GUI uses ships
