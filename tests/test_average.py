@@ -7,7 +7,7 @@ import mrcfile, numpy as np, pytest
 from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.average import average_kind
+from pickmix.average import average_kind, save_average
 from pickmix.config import Config, Kind
 from pickmix.estimate.registry import Fit
 from pickmix.model import Pick
@@ -31,7 +31,7 @@ def _item(i: int, tomogram: str, x: float, y: float, z: float) -> tuple[Pick, Fi
 
 # TestAverage: mean projections, montage and files
 class TestAverage:
-    # test_blob_in_centre: the overall mean is brightest in the middle, and files are written per tomogram and overall
+    # test_blob_in_centre: the overall mean is brightest in the middle, and averaging alone writes nothing
     def test_blob_in_centre(self, tmp_path: Path) -> None:
         tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20)]), 'U': _tomogram(tmp_path, 'U', [(20, 28, 20)])}
         config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
@@ -40,7 +40,21 @@ class TestAverage:
         assert r.count == 3 and r.box_px == 20 and r.overall.shape == (20, 20)
         assert r.overall[10, 10] > r.overall[0, 0] + 1.0
         assert set(r.per_tomogram) == {'T', 'U'} and r.montage.shape[0] >= 40
-        assert sorted(p.name for p in r.folder.glob('*.png')) == ['T_mean.png', 'U_mean.png', 'overall_mean.png', 'overall_montage.png']
+        assert not r.folder.exists()
+
+    # test_save_average: the overall images are always written, per-tomogram means only when asked, and old files are cleared
+    def test_save_average(self, tmp_path: Path) -> None:
+        tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20)]), 'U': _tomogram(tmp_path, 'U', [(20, 28, 20)])}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        items = [_item(1, 'T', 12, 20, 20), _item(2, 'T', 28, 20, 20), _item(3, 'U', 20, 28, 20)]
+        r = average_kind('yellow', Kind(marker_a=60, box_a=100), items, tomos, config)
+        assert r.counts == {'T': 2, 'U': 1} and sum(r.counts.values()) == r.count
+        names = lambda: sorted(p.name for p in r.folder.glob('*.png'))
+        paths = save_average(r)
+        assert sorted(p.name for p in paths) == names() == ['overall_mean.png', 'overall_montage.png']
+        assert sorted(p.name for p in save_average(r, per_tomogram=True)) == names() == ['T_mean.png', 'U_mean.png', 'overall_mean.png', 'overall_montage.png']
+        save_average(r)
+        assert names() == ['overall_mean.png', 'overall_montage.png']
 
     # test_nothing: no picks is an error
     def test_nothing(self, tmp_path: Path) -> None:

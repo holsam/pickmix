@@ -35,9 +35,11 @@ class AverageResult:
     grid: int
     pad: int
     labels: list[str]
+    # boxes averaged per tomogram
+    counts: dict[str, int]
 
 
-# average_kind: cut a box at every item, project the central slab of each along z, normalise it, and average per tomogram and overall; PNGs go to out_dir/average/<kind>/
+# average_kind: cut a box at every item, project the central slab of each along z, normalise it, and average per tomogram and overall; nothing is written until save_average
 def average_kind(
     name: str, kind: Kind, items: list[Item], tomos: dict[str, Tomogram], config: Config,
     *, log: Callable[[str], None] = lambda _: None,
@@ -75,15 +77,23 @@ def average_kind(
         grid, 
         MONTAGE_PAD, 
         [origins[i] for i in chosen],
+        {t: len(imgs) for t, imgs in images.items()},
     )
+    return result
+
+# save_average: clear the kind's old PNGs and write the overall mean and montage, and each tomogram's mean when asked; returns the paths written
+def save_average(result: AverageResult, *, per_tomogram: bool = False) -> list[Path]:
     result.folder.mkdir(parents=True, exist_ok=True)
     for stale in result.folder.glob('*.png'):
         stale.unlink()
-    _save(result.folder / 'overall_mean.png', result.overall)
-    _save(result.folder / 'overall_montage.png', result.montage)
-    for tomogram, img in result.per_tomogram.items():
-        _save(result.folder / f'{tomogram}_mean.png', img)
-    return result
+    written = [result.folder / 'overall_mean.png', result.folder / 'overall_montage.png']
+    _save(written[0], result.overall)
+    _save(written[1], result.montage)
+    if per_tomogram:
+        for tomogram, img in result.per_tomogram.items():
+            written.append(result.folder / f'{tomogram}_mean.png')
+            _save(written[-1], img)
+    return written
 
 # _save: write an image stretched between its 1st and 99th percentiles as an 8-bit PNG
 def _save(path: Path, arr: np.ndarray) -> None:
