@@ -108,3 +108,13 @@ class TestConfig:
     def test_kind_documented(self) -> None:
         for name, field in Kind.model_fields.items():
             assert field.title and field.description, name
+
+    # test_name: project name survives saving/loading and blank name is dropped from the file
+    def test_name(self, tmp_path: Path) -> None:
+        config = _config().model_copy(update={'name': 'Cages'})
+        save_config(config, tmp_path / 'a.toml')
+        assert load_config(tmp_path / 'a.toml').name == 'Cages'
+        blank = Config(name='  ', raw_dir=Path('/r'), tomograms_star=Path('/t.star'))
+        assert blank.name is None
+        save_config(blank, tmp_path / 'b.toml')
+        assert 'name' not in (tmp_path / 'b.toml').read_text()

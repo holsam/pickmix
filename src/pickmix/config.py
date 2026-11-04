@@ -57,6 +57,8 @@ def _default_kinds() -> dict[str, Kind]:
 
 # Config: validated project settings
 class Config(BaseModel):
+    # project name (shown on Project tab and in window title, None falls back to directory name)
+    name: str | None = None
     # tomogram locations; denoised_dir None means raw only
     raw_dir: Path
     denoised_dir: Path | None = None
@@ -78,6 +80,12 @@ class Config(BaseModel):
         if 'kinds' in changes and 'hotkeys' not in changes:
             changes = {**changes, 'hotkeys': []}
         return Config.model_validate({**self.model_dump(), **changes})
+
+    # _blank_name: a blank name is no name
+    @field_validator('name')
+    @classmethod
+    def _blank_name(cls, name: str | None) -> str | None:
+        return (name or '').strip() or None
 
     # _names: kind names become folder names, so keep them plain
     @field_validator('kinds')
