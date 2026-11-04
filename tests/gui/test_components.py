@@ -1,16 +1,24 @@
 '''
-pickmix: tests for the slice canvas
+pickmix: tests for gui components
 '''
 
 # Import external dependencies
-import numpy as np
-from pytestqt.qtbot import QtBot
+import numpy as np, pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtTest import QTest
+from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
+from pickmix.gui.components.icons import ICON_DIR, icon, tinted
+from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, status_item
+
+# STEMS: bundled icons
+STEMS: list[str] = [
+    'add', 'cached', 'check', 'close', 'create_new_folder', 'delete', 'edit', 'error', 'fit_screen', 'folder_open', 'fullscreen',
+    'help', 'left_panel_close', 'left_panel_open', 'logout', 'refresh', 'visibility', 'visibility_off', 'warning',
+]
 
 # _canvas: a shown canvas with a 40 x 30 slice at unit zoom
 def _canvas(qtbot: QtBot) -> SliceCanvas:
@@ -122,3 +130,48 @@ class TestCanvas:
         assert canvas.normal_visible(1) and not canvas.normal_visible(2)
         canvas.set_overlay(rings=True, boxes=True, normals=False)
         assert not canvas.normal_visible(1)
+
+# TestIcons: icon loading and tinting
+class TestIcons:
+    # test_bundled: every icon the GUI uses ships
+    @pytest.mark.parametrize('stem', STEMS)
+    def test_bundled(self, qtbot: QtBot, stem: str) -> None:
+        assert (ICON_DIR / f'{stem}.svg').exists() and icon(stem) is not None
+
+    # test_missing: an icon with no file is None
+    def test_missing(self) -> None:
+        assert icon('no_such_icon') is None and tinted('no_such_icon', '#ff0000') is None
+
+    # test_tinted: opaque pixels take the colour asked for
+    def test_tinted(self, qtbot: QtBot) -> None:
+        image = tinted('check', '#2e9e44').pixmap(16, 16).toImage()
+        opaque = [image.pixelColor(x, y) for x in range(16) for y in range(16) if image.pixelColor(x, y).alpha() > 200]
+        assert opaque and all(c.name() == '#2e9e44' for c in opaque)
+
+# TestStatus: status cells and badges
+class TestStatus:
+    # test_item_icons: each status gives a cell with an icon and its tip, None gives an empty cell
+    @pytest.mark.parametrize('status', list(STATUS_STYLE))
+    def test_item_icons(self, qtbot: QtBot, status: str) -> None:
+        item = status_item(status, 'why')
+        assert not item.icon().isNull() and item.toolTip() == 'why' and item.text() == ''
+        blank = status_item(None)
+        assert blank.icon().isNull() and blank.text() == ''
+
+    # test_item_falls_back: without the icon file the cell shows a glyph
+    def test_item_falls_back(self, qtbot: QtBot, monkeypatch) -> None:
+        monkeypatch.setattr('pickmix.gui.components.status.tinted', lambda stem, colour, size=16: None)
+        assert status_item('ok').text() == '✓' and status_item('error').text() == '✖'
+
+    # test_badge_spins_only_when_running: the timer runs for running and stops for anything else
+    def test_badge_spins_only_when_running(self, qtbot: QtBot) -> None:
+        badge = StatusBadge()
+        qtbot.addWidget(badge)
+        badge.set_status('running')
+        assert badge._timer.isActive()
+        first = badge.pixmap().toImage()
+        qtbot.waitUntil(lambda: badge.pixmap().toImage() != first, timeout=2000)
+        badge.set_status('ok', 'fine')
+        assert not badge._timer.isActive() and badge.toolTip() == 'fine'
+        badge.set_status(None)
+        assert badge.pixmap().isNull() and badge.text() == ''
