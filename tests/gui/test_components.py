@@ -12,6 +12,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
+from pickmix.gui.components.images import label_cells, to_image, to_pixmap
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, fit_status, status_item
 from pickmix.gui.components.toast import notify
@@ -173,6 +174,32 @@ class TestIcons:
         image = tinted('check', OK).pixmap(16, 16).toImage()
         opaque = [image.pixelColor(x, y) for x in range(16) for y in range(16) if image.pixelColor(x, y).alpha() > 200]
         assert opaque and all(max(abs(a - b) for a, b in zip(c.getRgb()[:3], want)) <= 4 for c in opaque)
+
+# TestImages: image helpers
+class TestImages:
+    # test_to_image_stretches: the 1st to 99th percentile fills the 8-bit range
+    def test_to_image_stretches(self, qtbot: QtBot) -> None:
+        arr = np.linspace(0.0, 1.0, 64 * 64).reshape(64, 64)
+        image = to_image(arr)
+        assert image.width() == 64 and image.height() == 64 and image.pixelColor(0, 0).red() == 0 and image.pixelColor(63, 63).red() == 255
+
+    # test_to_pixmap_fits: the pixmap fits the square and keeps the aspect
+    def test_to_pixmap_fits(self, qtbot: QtBot) -> None:
+        pixmap = to_pixmap(np.random.default_rng(0).random((20, 40)), 100)
+        assert pixmap.width() == 100 and pixmap.height() == 50
+
+    # test_label_cells_marks_each_cell: each cell's top-left corner is darkened, the cell centre is untouched
+    def test_label_cells_marks_each_cell(self, qtbot: QtBot) -> None:
+        grid, box, pad = 2, 40, 2
+        size = grid * (box + pad) + pad
+        base = to_image(np.full((size, size), 200.0) + np.random.default_rng(1).random((size, size)))
+        out = label_cells(base, ['1/1', '1/2', '2/1', '2/2'], grid, pad)
+        assert out.size() == base.size()
+        for row in range(grid):
+            for col in range(grid):
+                x, y = pad + col * (box + pad), pad + row * (box + pad)
+                assert out.pixelColor(x + 1, y + 1).red() < base.pixelColor(x + 1, y + 1).red()
+                assert out.pixelColor(x + box - 2, y + box - 2) == base.pixelColor(x + box - 2, y + box - 2).toRgb()
 
 # TestRangeSlider: two-handle slider
 class TestRangeSlider:

@@ -4,6 +4,7 @@ pickmix: shared GUI text levels and spacing
 
 # Import external dependencies
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QTableWidget, QToolButton, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
@@ -31,6 +32,10 @@ RUNNING: str = '#6494aa'
 
 # MUTED: grey of hints and of anything dimmed or unavailable
 MUTED: str = '#808080'
+
+# LABEL_BG, OVERLAY_TEXT: translucent dark box and white text drawn over images
+LABEL_BG: QColor = QColor(0, 0, 0, 150)
+OVERLAY_TEXT: QColor = QColor('white')
 
 # WELL_BG, WELL_TEXT: dark backdrop and dim placeholder text of the frames that hold images
 WELL_BG: str = '#141414'

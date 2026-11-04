@@ -3,10 +3,10 @@ pickmix: tests for gui panes
 '''
 
 # Import external dependencies
-import pytest
+import numpy as np, pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from PySide6.QtGui import QShortcut
+from PySide6.QtGui import QImage, QShortcut
 from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
 
@@ -96,22 +96,43 @@ class TestAveragePane:
         widget.refresh_kinds()
         assert widget.summary.text() == '2 picks in 1 tomograms (2.0 per tomogram)'
 
-    # test_run_shows_images: running averages the picks and shows the mean and montage
+    # test_run_shows_images: running averages the picks and shows the labelled montage and the mean
     def test_run_shows_images(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
         widget, session, service = pane
         pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
         qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
         widget.refresh_kinds()
         widget.run()
+        assert widget.spinner.status == 'running' and not widget.run_button.isEnabled()
         qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
         assert widget.results_list.count() == 2 and not widget.mean_label.pixmap().isNull() and not widget.montage_label.pixmap().isNull()
+        assert widget.spinner.status is None and widget.run_button.isEnabled() and widget.save_button.isEnabled()
         assert (session.project.config.out_dir / 'average' / 'yellow' / 'overall_mean.png').exists()
 
-    # test_run_without_estimates: nothing to average is said, not raised
-    def test_run_without_estimates(self, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+    # test_run_without_estimates: nothing to average is said in a message, not raised
+    def test_run_without_estimates(self, pane: tuple[AveragePane, Session, EstimateService], capsys) -> None:
         widget, _, _ = pane
         widget.run()
-        assert 'No picks' in widget.status.text()
+        assert 'No picks' in capsys.readouterr().out and widget.spinner.status is None
+
+    # test_save_montage_writes_two_files: plain and labelled PNGs of the same size, the labelled one different
+    def test_save_montage_writes_two_files(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+        widget, session, service = pane
+        assert widget.save_montage() == []
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
+        widget.refresh_kinds()
+        widget.run()
+        qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
+        plain, labelled = (QImage(p) for p in widget.save_montage())
+        assert not plain.isNull() and plain.size() == labelled.size() and plain != labelled
+
+    # test_layout: Mean and Montage have their own headings and the list sits beside the mean
+    def test_layout(self, pane: tuple[AveragePane, Session, EstimateService]) -> None:
+        widget, _, _ = pane
+        headings = {label.text() for label in widget.findChildren(QLabel) if label.font().bold()}
+        assert {'Mean', 'Montage'} <= headings
+        assert not hasattr(widget, 'status')
 
 # TestKindsPane: kinds pane
 class TestKindsPane:
