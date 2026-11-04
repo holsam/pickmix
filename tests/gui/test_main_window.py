@@ -22,12 +22,12 @@ class TestMainWindow:
         assert all(window.tabs.isTabEnabled(i) for i in range(4))
         assert window.project is not None
 
-    # test_kinds_tab_follows_project: the Kinds tab shows the opened project's kinds
-    def test_kinds_tab_follows_project(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+    # test_kinds_pane_follows_project: the kinds pane shows the opened project's kinds
+    def test_kinds_pane_follows_project(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         window = MainWindow()
         qtbot.addWidget(window)
         window.project_tab.set_project(open_project(make_config()))
-        assert window.kinds_tab.kind_names() == ['cage']
+        assert window.kinds_pane.kind_names() == ['cage']
 
     # test_step_only_on_pick_tab: Enter steps tomograms on the Pick tab and nowhere else
     def test_step_only_on_pick_tab(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
@@ -50,7 +50,9 @@ class TestMainWindow:
         qtbot.addWidget(window)
         window.project_tab.set_project(open_project(make_config(shape=(4, 6, 20))))
         assert window.session is None
-        assert window.tabs.isTabEnabled(1) and not window.tabs.isTabEnabled(2)
+        assert window.tabs.isTabEnabled(0) and not any(window.tabs.isTabEnabled(i) for i in (1, 2, 3))
+        assert window.kinds_pane.kind_names() == ['cage']
+
 
     # test_review_tab_wired: the Review tab is built for an opened project and opening a pick switches tabs
     def test_review_tab_wired(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
@@ -104,9 +106,9 @@ class TestMainWindow:
         window = MainWindow()
         qtbot.addWidget(window)
         window.project_tab.set_project(open_project(path))
-        for tab in (window.pick_tab, window.review_tab, window.kinds_tab, window.export_tab):
+        for tab in (window.pick_tab, window.review_tab, window.export_tab):
             window.tabs.setCurrentWidget(tab)
-        assert window.kinds_tab.kind_names() == [] and window.pick_tab.active is None
+        assert window.kinds_pane.kind_names() == [] and window.pick_tab.active is None
         window.service.shutdown()
         window.loader.shutdown()
 

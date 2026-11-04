@@ -9,19 +9,18 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QDockWidget, QLineEdit, QMainWindow, QTabWidget
 
 # Import internal pickmix objects
-from pickmix.gui.components.toast import install
-from pickmix.gui.tabs.kinds_tab import KindsTab
 from pickmix.estimates import EstimateService
+from pickmix.gui.components.toast import install
+from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.gui.tabs.review_tab import ReviewTab
-from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import Project
 
-# MainWindow: tabs in workflow order; everything after Project waits for an open project
+# MainWindow: tabs in workflow order; everything after Project waits for usable tomograms
 class MainWindow(QMainWindow):
     # __init__: build the tabs and dock
     def __init__(self) -> None:
@@ -34,17 +33,15 @@ class MainWindow(QMainWindow):
         self.service: EstimateService | None = None
         self.tabs = QTabWidget()
         self.project_tab = ProjectTab()
-        self.kinds_tab = KindsTab()
+        self.kinds_pane = self.project_tab.kinds_pane
         self.pick_tab = PickTab()
         self.review_tab = ReviewTab()
         self.export_tab = ExportTab()
         self.dock = TomoPane()
         self.tabs.addTab(self.project_tab, 'Project')
-        self.tabs.addTab(self.kinds_tab, 'Kinds')
         self.tabs.addTab(self.pick_tab, 'Pick')
         self.tabs.addTab(self.review_tab, 'Review')
         self.tabs.addTab(self.export_tab, 'Export')
-        self.tabs.setTabEnabled(self.tabs.indexOf(self.kinds_tab), False)
         self._set_enabled(session=False)
         self.setCentralWidget(self.tabs)
         self.dock_widget = QDockWidget('Tomograms')
@@ -56,7 +53,7 @@ class MainWindow(QMainWindow):
         self.project_tab.project_changed.connect(self._on_project)
         self.project_tab.config_saved.connect(self._on_settings)
         self.project_tab.project_closed.connect(self._on_closed)
-        self.kinds_tab.config_saved.connect(self._on_kinds)
+        self.project_tab.kinds_saved.connect(self._on_kinds)
         self.review_tab.open_pick.connect(self._open_pick)
         self.toast = install(self)
         for keys, delta in (('Return', 1), ('Enter', 1), ('Shift+Return', -1), ('Shift+Enter', -1)):
@@ -79,12 +76,16 @@ class MainWindow(QMainWindow):
     def _sync_dock(self) -> None:
         self.dock_widget.setVisible(self.session is not None and self.tabs.currentWidget() is self.pick_tab)
 
+    # _set_enabled: Project is always usable; Pick, Review and Export need a session
+    def _set_enabled(self, *, session: bool) -> None:
+        for tab in (self.pick_tab, self.review_tab, self.export_tab):
+            self.tabs.setTabEnabled(self.tabs.indexOf(tab), session)
+
     # _on_project: build the session and loader for a project and unlock the tabs
     def _on_project(self, project: Project) -> None:
         self.project = project
         self.setWindowTitle(f'pickmix • {project.display_name}')
         self._shutdown()
-        self.kinds_tab.set_project(project)
         if project.tomos:
             self.session, self.loader = Session(project), Loader(project)
             self.service = EstimateService(self.session, self.loader)
@@ -92,12 +93,11 @@ class MainWindow(QMainWindow):
             self.review_tab.set_session(self.session, self.loader, self.service)
             self.export_tab.set_session(self.session, self.loader, self.service)
             self.dock.set_session(self.session)
-            self.kinds_tab.set_session(self.session, self.service)
+            self.kinds_pane.set_session(self.session, self.service)
         else:
             self.session = self.loader = self.service = None
-            self.kinds_tab.set_session(None, None)
+            self.kinds_pane.set_session(None, None)
             self.export_tab.clear()
-        self.tabs.setTabEnabled(self.tabs.indexOf(self.kinds_tab), True)
         self._set_enabled(session=self.session is not None)
         self._sync_dock()
 
@@ -109,20 +109,14 @@ class MainWindow(QMainWindow):
             self.loader.shutdown()
         self.session = self.loader = self.service = None
 
-    # _set_enabled: Pick, Review and Export need a session
-    def _set_enabled(self, *, session: bool) -> None:
-        for tab in (self.pick_tab, self.review_tab, self.export_tab):
-            self.tabs.setTabEnabled(self.tabs.indexOf(tab), session)
-
     # _on_closed: no project; lock everything but the Project tab
     def _on_closed(self) -> None:
         self._shutdown()
         self.project = None
         self.setWindowTitle('pickmix')
-        self.kinds_tab.set_session(None, None)
-        self.tabs.setTabEnabled(self.tabs.indexOf(self.kinds_tab), False)
-        self._set_enabled(session=False)
+        self.kinds_pane.set_session(None, None)
         self.export_tab.clear()
+        self._set_enabled(session=False)
         self.tabs.setCurrentWidget(self.project_tab)
         self._sync_dock()
 
@@ -135,7 +129,7 @@ class MainWindow(QMainWindow):
     def _on_kinds(self) -> None:
         self.pick_tab.refresh_kinds()
         self.review_tab.refresh_kinds()
-        self.export_tab.average.refresh_kinds()
+        self.export_tab.refresh_kinds()
         self.dock.refresh()
 
     # _open_pick: show a pick from the Review tab in the Pick tab

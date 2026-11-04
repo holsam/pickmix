@@ -89,3 +89,12 @@ class TestProjectTab:
         with qtbot.waitSignal(tab.project_closed):
             tab.close_button.click()
         assert tab.stack.currentIndex() == 0 and tab.project is None
+
+    # test_kinds_pane_shows_kinds: the kinds of the opened project are listed under the table
+    def test_kinds_pane_shows_kinds(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        tab.set_project(open_project(make_config()))
+        assert tab.kinds_pane.kind_names() == ['cage']
+        with qtbot.waitSignal(tab.kinds_saved):
+            tab.kinds_pane.hotkey_boxes[2].setCurrentText('cage')

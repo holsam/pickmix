@@ -12,13 +12,15 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix import __version__
-from pickmix.config import Kind
+from pickmix.config import Kind, load_config
 from pickmix.estimates import EstimateService
+from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 from pickmix.gui.panes.average_pane import AveragePane
+from pickmix.gui.panes.kinds_pane import KindsPane
 from pickmix.gui.panes.tomo_pane import COLOUR_CURRENT, COLOUR_PENDING, COLOUR_VISITED, TomoPane
 from pickmix.gui.panes.welcome_pane import WelcomePane
 from pickmix.loader import Loader
-from pickmix.model import Session
+from pickmix.model import PickStore, Session
 from pickmix.project import open_project
 
 # NAME: the single tomogram of the fixture project
@@ -27,8 +29,32 @@ NAME: str = 'Position_1_2'
 # THREE: tomograms for the dock tests
 THREE: tuple[str, ...] = ('Position_1_2', 'Position_1_3', 'Other_9')
 
-# _pane: a pane over a three-tomogram session
-def _pane(qtbot: QtBot, make_config: Callable[..., Path]) -> tuple[TomoPane, Session]:
+# _kinds_pane: a Kinds pane showing a fresh project; returns the pane and the config path
+def _kinds_pane(qtbot: QtBot, make_config: Callable[..., Path]) -> tuple[KindsPane, Path]:
+    path = make_config()
+    pane = KindsPane()
+    qtbot.addWidget(pane)
+    pane.set_project(open_project(path))
+    return pane, path
+
+# _kinds_pane_with_picks: a pane with cage, green (child of cage) and yellow kinds, a session, and picks of every kind
+def _kinds_pane_with_picks(qtbot: QtBot, make_config: Callable[..., Path]) -> tuple[KindsPane, Path, Session]:
+    path = make_config()
+    project = open_project(path)
+    project.update(kinds={
+        'cage': Kind(marker_a=600, box_a=700), 'green': Kind(marker_a=40, box_a=200, parent='cage'), 'yellow': Kind(marker_a=100, box_a=100),
+    })
+    session = Session(project)
+    for kind in ('cage', 'cage', 'green', 'yellow'):
+        session.store.add('Position_1_2', kind, 1.0, 1.0, 1.0)
+    pane = KindsPane()
+    qtbot.addWidget(pane)
+    pane.set_project(project)
+    pane.set_session(session, None)
+    return pane, path, session
+
+# _tomo_pane: a pane over a three-tomogram session
+def _tomo_pane(qtbot: QtBot, make_config: Callable[..., Path]) -> tuple[TomoPane, Session]:
     session = Session(open_project(make_config(names=THREE)))
     pane = TomoPane()
     qtbot.addWidget(pane)
@@ -77,18 +103,184 @@ class TestAveragePane:
         widget.run()
         assert 'No picks' in widget.status.text()
 
+# TestKindsPane: kinds pane
+class TestKindsPane:
+    # test_lists_kinds: each kind is listed with its values as plain text and an edit button
+    def test_lists_kinds(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _ = _kinds_pane(qtbot, make_config)
+        assert pane.kind_names() == ['cage'] and 'cage' in pane.edit_buttons
+        text = pane.details['cage'].text()
+        assert '<b>Marker:</b> 600 Å' in text and '<b>Box:</b> from estimator' in text and '<b>Estimator:</b> ring' in text and '<b>Parent:</b> none' in text
+
+    # test_hotkey_defaults: keys start on the kinds in order, the rest are unused
+    def test_hotkey_defaults(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _ = _kinds_pane(qtbot, make_config)
+        assert [b.currentText() for b in pane.hotkey_boxes] == ['cage', *['(none)'] * 8]
+        assert pane.hotkey_boxes[1].itemText(0) == '(none)' and pane.hotkey_boxes[1].count() == 2
+
+    # test_hotkey_change_saves: choosing a kind for a key saves it and moves the kind off its old key
+    def test_hotkey_change_saves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _kinds_pane(qtbot, make_config)
+        with qtbot.waitSignal(pane.config_saved):
+            pane.hotkey_boxes[2].setCurrentText('cage')
+        assert load_config(path).hotkeys == ['', '', 'cage', *[''] * 6]
+        assert pane.hotkey_boxes[0].currentText() == '(none)'
+
+    # test_add_kind: a new kind is saved after the others and takes the first free key
+    def test_add_kind(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _kinds_pane(qtbot, make_config)
+        with qtbot.waitSignal(pane.config_saved):
+            pane._apply('yellow', Kind(marker_a=100, box_a=100))
+        config = load_config(path)
+        assert list(config.kinds) == ['cage', 'yellow'] and config.hotkeys[:3] == ['cage', 'yellow', '']
+        assert pane.kind_names() == ['cage', 'yellow'] and pane.hotkey_boxes[1].currentText() == 'yellow'
+
+    # test_edit_kind: the edit button opens the dialog on that kind and OK saves the changes
+    def test_edit_kind(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        pane, path = _kinds_pane(qtbot, make_config)
+        # fake_exec: change the marker size and accept
+        def fake_exec(dialog: KindDialog) -> int:
+            assert not dialog.adding and dialog.name_edit.text() == 'cage'
+            dialog.marker_spin.setValue(700)
+            return 1
+        monkeypatch.setattr(KindDialog, 'exec', fake_exec)
+        pane.edit_buttons['cage'].click()
+        assert load_config(path).kinds['cage'].marker_a == 700
+        assert '<b>Marker:</b> 700 Å' in pane.details['cage'].text()
+
+    # test_cancel_changes_nothing: a cancelled dialog leaves the file alone
+    def test_cancel_changes_nothing(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        pane, path = _kinds_pane(qtbot, make_config)
+        before = path.read_text()
+        monkeypatch.setattr(KindDialog, 'exec', lambda dialog: 0)
+        pane.add_button.click()
+        assert path.read_text() == before
+
+    # test_dialog_check: the dialog refuses a duplicate name and a passthrough with no box before anything is saved
+    def test_dialog_check(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _ = _kinds_pane(qtbot, make_config)
+        assert pane._problem('cage2', Kind(marker_a=10, box_a=0, estimator='none'), None) is not None
+        assert pane._problem('cage2', Kind(marker_a=10, box_a=10, parent='missing'), None) is not None
+        assert pane._problem('cage2', Kind(marker_a=10, box_a=10), None) is None
+
+    # test_delete_kind: deleting removes the kind and frees its key
+    def test_delete_kind(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _kinds_pane(qtbot, make_config)
+        pane._apply('yellow', Kind(marker_a=100, box_a=100))
+        pane._delete('yellow')
+        config = load_config(path)
+        assert list(config.kinds) == ['cage'] and config.hotkeys == ['cage', *[''] * 8]
+
+    # test_delete_blocked: a kind that is another's parent is not deleted, and says why
+    def test_delete_blocked(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _kinds_pane(qtbot, make_config)
+        pane._apply('green', Kind(marker_a=40, box_a=200, parent='cage'))
+        before = path.read_text()
+        pane._delete('cage')
+        assert pane.status.text().startswith('Not deleted') and path.read_text() == before
+
+    # test_delete_only_kind: the last kind can be deleted, leaving an empty list and unused keys
+    def test_delete_only_kind(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _kinds_pane(qtbot, make_config)
+        pane._delete('cage')
+        config = load_config(path)
+        assert config.kinds == {} and config.hotkeys == [''] * 9
+        assert pane.kind_names() == [] and [b.currentText() for b in pane.hotkey_boxes] == ['(none)'] * 9
+        pane._apply('yellow', Kind(marker_a=100, box_a=100))
+        assert list(load_config(path).kinds) == ['yellow'] and pane.hotkey_boxes[0].currentText() == 'yellow'
+
+    # test_rename_follows: a rename keeps the kind's place, hotkey, children and picks, in memory and in picks.csv
+    def test_rename_follows(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path, session = _kinds_pane_with_picks(qtbot, make_config)
+        pane._apply('gold', Kind(marker_a=600, box_a=700), old='cage')
+        config = load_config(path)
+        assert list(config.kinds) == ['gold', 'green', 'yellow'] and config.kinds['green'].parent == 'gold'
+        assert config.hotkeys[:3] == ['gold', 'green', 'yellow']
+        assert [p.kind for p in session.store.all()] == ['gold', 'gold', 'green', 'yellow']
+        assert sorted(p.kind for p in PickStore(session.project).all()) == ['gold', 'gold', 'green', 'yellow']
+        assert pane.kind_names() == ['gold', 'green', 'yellow']
+
+    # test_edit_without_rename_keeps_picks: editing values only leaves the picks alone
+    def test_edit_without_rename_keeps_picks(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path, session = _kinds_pane_with_picks(qtbot, make_config)
+        pane._apply('cage', Kind(marker_a=650, box_a=700), old='cage')
+        assert load_config(path).kinds['cage'].marker_a == 650 and session.store.total('cage') == 2
+
+    # test_rename_to_existing_refused: a kind cannot take another kind's name
+    def test_rename_to_existing_refused(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _, _ = _kinds_pane_with_picks(qtbot, make_config)
+        assert 'already exists' in pane._problem('green', Kind(marker_a=600, box_a=700), 'cage')
+
+    # test_delete_with_picks_asks: picks of the kind go with it after a yes, and stay with a no
+    def test_delete_with_picks_asks(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        pane, path, session = _kinds_pane_with_picks(qtbot, make_config)
+        asked: list[str] = []
+        monkeypatch.setattr(KindsPane, '_confirm', lambda self, text: asked.append(text) or False)
+        pane._delete('yellow')
+        assert 'yellow' in asked[0] and '1 picks' in asked[0] and 'yellow' in load_config(path).kinds and session.store.total('yellow') == 1
+        monkeypatch.setattr(KindsPane, '_confirm', lambda self, text: True)
+        pane._delete('yellow')
+        assert 'yellow' not in load_config(path).kinds and session.store.total('yellow') == 0
+        assert sorted(p.kind for p in PickStore(session.project).all()) == ['cage', 'cage', 'green']
+
+    # test_delete_without_picks_does_not_ask: an empty kind is deleted without a question
+    def test_delete_without_picks_does_not_ask(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        pane, path, session = _kinds_pane_with_picks(qtbot, make_config)
+        session.store.remove_kind('yellow')
+        # fail: asking is a bug here
+        def fail(self: KindsPane, text: str) -> bool:
+            raise AssertionError(text)
+        monkeypatch.setattr(KindsPane, '_confirm', fail)
+        pane._delete('yellow')
+        assert 'yellow' not in load_config(path).kinds
+
+    # test_refused_delete_keeps_picks: a delete the config refuses neither asks nor touches the picks
+    def test_refused_delete_keeps_picks(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        pane, path, session = _kinds_pane_with_picks(qtbot, make_config)
+        monkeypatch.setattr(KindsPane, '_confirm', lambda self, text: (_ for _ in ()).throw(AssertionError(text)))
+        pane._delete('cage')
+        assert pane.status.text().startswith('Not deleted') and session.store.total('cage') == 2
+
+    # test_details_are_a_vertical_list_with_bold_keys: one key per line, each key bold
+    def test_details_are_a_vertical_list_with_bold_keys(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _ = _kinds_pane(qtbot, make_config)
+        lines = pane.details['cage'].text().split('<br>')
+        assert len(lines) == 7 and all(line.startswith('<b>') and ':</b> ' in line for line in lines)
+
+    # test_kinds_flow_into_columns: a wide block gives one column, a narrow one gives several, filling across then down
+    def test_kinds_flow_into_columns(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        pane, _, _ = _kinds_pane_with_picks(qtbot, make_config)
+        pane.resize(900, 600)
+        pane.show()
+        position = lambda i: pane.grid.getItemPosition(pane.grid.indexOf(pane.cards[i]))[:2]
+        monkeypatch.setattr('pickmix.gui.panes.kinds_pane._CARD_WIDTH', 10000)
+        pane._columns = 0
+        pane._reflow()
+        assert pane._columns == 1 and [position(i) for i in range(3)] == [(0, 0), (1, 0), (2, 0)]
+        monkeypatch.setattr('pickmix.gui.panes.kinds_pane._CARD_WIDTH', 100)
+        pane._reflow()
+        assert pane._columns >= 3 and [position(i) for i in range(3)] == [(0, 0), (0, 1), (0, 2)]
+
+    # test_add_button_is_on_the_right: the Add button sits after the heading's stretch
+    def test_add_button_is_on_the_right(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, _ = _kinds_pane(qtbot, make_config)
+        pane.resize(900, 600)
+        pane.show()
+        qtbot.waitUntil(lambda: pane.add_button.isVisible())
+        assert pane.add_button.mapTo(pane, pane.add_button.rect().topRight()).x() > pane.scroll.mapTo(pane, pane.scroll.rect().center()).x()
+
 # TestTomoPane: tomogram dock
 class TestTomoPane:
     # test_lines: number, name and picks, no markers
     def test_lines(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
-        pane, session = _pane(qtbot, make_config)
+        pane, session = _tomo_pane(qtbot, make_config)
         session.store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
         assert pane.list.item(0).text().split() == ['1', 'Position_1_2', '1']
         assert pane.list.item(1).text().split() == ['2', 'Position_1_3', '0']
 
     # test_state_colours: current blue and bold, opened green, not yet opened orange
     def test_state_colours(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
-        pane, session = _pane(qtbot, make_config)
+        pane, session = _tomo_pane(qtbot, make_config)
         assert pane.list.item(0).foreground().color() == COLOUR_CURRENT and pane.list.item(0).font().bold()
         assert pane.list.item(1).foreground().color() == COLOUR_PENDING and not pane.list.item(1).font().bold()
         pane._clicked(pane.list.item(2))
@@ -99,7 +291,7 @@ class TestTomoPane:
 
     # test_visited_label: visited count sits above the search box, with no per-kind totals
     def test_visited_label(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
-        pane, session = _pane(qtbot, make_config)
+        pane, session = _tomo_pane(qtbot, make_config)
         assert pane.visited.text() == 'Visited 1/3'
         session.go(1)
         assert pane.visited.text() == 'Visited 2/3'
@@ -107,7 +299,7 @@ class TestTomoPane:
 
     # test_jump_box: a name jumps and clears the box, no match keeps the text
     def test_jump_box(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
-        pane, session = _pane(qtbot, make_config)
+        pane, session = _tomo_pane(qtbot, make_config)
         pane.jump_edit.setText('other')
         pane.jump_edit.returnPressed.emit()
         assert session.current == 'Other_9' and pane.jump_edit.text() == ''

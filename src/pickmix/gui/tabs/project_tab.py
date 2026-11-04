@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from pickmix.config import RingParams
 from pickmix.gui.components.collapsible import Collapsible
 from pickmix.gui.dialogs.new_project_dialog import NewProjectDialog
+from pickmix.gui.panes.kinds_pane import KindsPane
 from pickmix.gui.panes.welcome_pane import WelcomePane
 from pickmix.gui.style import form_label, heading, tidy
 from pickmix.gui.workers import run_in_background
@@ -68,6 +69,8 @@ class ProjectTab(QWidget):
     config_saved = Signal()
     # project_closed: the open project was closed
     project_closed = Signal()
+    # kinds_saved: the kinds or hotkeys were written to config.toml
+    kinds_saved = Signal()
 
     # __init__: build the layout
     def __init__(self) -> None:
@@ -88,6 +91,8 @@ class ProjectTab(QWidget):
         self.source_box = QComboBox()
         self.source_box.addItems(['denoised', 'raw'])
         self.ring_form = _ParamsForm(RingParams())
+        self.kinds_pane = KindsPane()
+        self.kinds_pane.config_saved.connect(self.kinds_saved)
         self.save_button = QPushButton('Save settings')
         general = QGroupBox('General')
         source = QFormLayout(general)
@@ -113,6 +118,7 @@ class ProjectTab(QWidget):
         left = QVBoxLayout()
         left.addWidget(self.summary)
         left.addWidget(self.table)
+        left.addWidget(self.kinds_pane)
         body = QHBoxLayout()
         body.addLayout(left, 3)
         body.addWidget(self.settings, 1)
@@ -148,6 +154,7 @@ class ProjectTab(QWidget):
         self.ring_form.set(project.config.ring)
         self.stack.setCurrentIndex(1)
         self._idle('')
+        self.kinds_pane.set_project(project)
         self.project_changed.emit(project)
 
     # close_project: close the open project and go back to the start page

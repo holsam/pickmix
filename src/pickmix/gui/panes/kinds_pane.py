@@ -1,5 +1,5 @@
 '''
-pickmix: Kinds tab, listing the kinds, choosing hotkeys and editing both in config.toml
+pickmix: kinds pane, listing the kinds, choosing hotkeys and editing both in config.toml
 '''
 
 # Import external dependencies
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from pickmix.config import HOTKEYS, Kind
 from pickmix.estimates import EstimateService
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
-from pickmix.gui.style import heading, icon, tidy
+from pickmix.gui.style import heading, icon
 from pickmix.model import Session
 from pickmix.project import Project
 
@@ -25,8 +25,8 @@ NO_KIND: str = '(none)'
 # _CARD_WIDTH: narrowest a kind's block gets, in pixels, before the grid drops a column
 _CARD_WIDTH: int = 260
 
-# KindsTab: the kinds as a list with an edit button each, and one dropdown per hotkey
-class KindsTab(QWidget):
+# KindsPane: the kinds as a list with an edit button each, and one dropdown per hotkey
+class KindsPane(QWidget):
     # config_saved: the kinds or hotkeys were written to config.toml
     config_saved = Signal()
 
@@ -73,7 +73,7 @@ class KindsTab(QWidget):
         top.addLayout(hotkeys_pane, 1)
         self.status = QLabel()
         layout = QVBoxLayout(self)
-        tidy(layout)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(top, 1)
         layout.addWidget(self.status)
 
