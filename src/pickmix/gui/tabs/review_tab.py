@@ -18,7 +18,7 @@ from pickmix.geometry import Parent
 from pickmix.gui.components.icons import icon
 from pickmix.gui.components.images import to_pixmap
 from pickmix.gui.components.status import fit_status, status_item
-from pickmix.gui.style import image_well, tidy
+from pickmix.gui.style import heading, image_well, tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
@@ -84,8 +84,8 @@ class ReviewTab(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.xy_label = QLabel('xy')
-        self.xz_label = QLabel('xz')
+        self.xy_label = QLabel()
+        self.xz_label = QLabel()
         for label in (self.xy_label, self.xz_label):
             image_well(label, _PREVIEW)
         # controls: filters over two rows, then buttons, then the shown count, all centred on the same line
@@ -109,7 +109,13 @@ class ReviewTab(QWidget):
         controls.setAlignment(filters, Qt.AlignmentFlag.AlignVCenter)
         controls.setAlignment(buttons, Qt.AlignmentFlag.AlignVCenter)
         previews = QVBoxLayout()
+        self.xy_heading = heading('XY')
+        self.xz_heading = heading('XZ')
+        self.xy_heading.setToolTip('The slice through the pick')
+        self.xz_heading.setToolTip('The plane through the pick along z, at its y position')
+        previews.addWidget(self.xy_heading)
         previews.addWidget(self.xy_label)
+        previews.addWidget(self.xz_heading)
         previews.addWidget(self.xz_label)
         previews.addStretch()
         body = QHBoxLayout()

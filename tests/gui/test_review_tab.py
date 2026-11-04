@@ -132,6 +132,12 @@ class TestReviewTab:
         modes = [header.sectionResizeMode(c) for c in range(8)]
         assert modes[:2] == [QHeaderView.ResizeMode.ResizeToContents] * 2 and set(modes[2:]) == {QHeaderView.ResizeMode.Stretch}
 
+    # test_preview_headings: the two images say which plane they show
+    def test_preview_headings(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.xy_heading.text() == 'XY' and tab.xz_heading.text() == 'XZ'
+        assert tab.xy_heading.font().bold()
+
     # test_crops: preview crops are cut around the pick
     def test_crops(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, _, _ = setup()
