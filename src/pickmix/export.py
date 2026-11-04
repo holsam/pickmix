@@ -3,7 +3,7 @@ pickmix: RELION coordinate star files and box recommendation per kind
 '''
 
 # Import external dependencies
-import numpy as np
+import csv, numpy as np
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +30,15 @@ class KindSummary:
     box_a: float
     box_px: int
     folder: Path
+
+# CsvSummary: what a csv export of one kind wrote
+@dataclass(frozen=True)
+class CsvSummary:
+    kind: str
+    written: int
+    below_snr: int
+    excluded_flagged: int
+    path: Path
 
 # recommend_box: (box edge in Angstrom, in pixels at the kind's extraction pixel size rounded up to even); the kind's own box if set, else a percentile of the fits
 def recommend_box(kind: Kind, items: list[Item], *, percentile: float = 95.0) -> tuple[float, int]:
@@ -80,3 +89,24 @@ def export_kind(
         write_star_loop(folder / f'{tomogram}_coords.star', 'particles', columns, [r for r in rows if r[0] == tomogram])
     box_a, box_px = recommend_box(kind, kept, percentile=percentile)
     return KindSummary(name, len(kept), below, dropped, unmatched, box_a, box_px, folder)
+
+# export_csv: write out_dir/csv/<kind>.csv, one row per pick passing the SNR and flag settings, with the pick and fitted centres in voxels, the fit's ring radius and box in Angstrom, SNR and flags
+def export_csv(
+    name: str, items: list[Item], out_dir: Path, *, min_snr: float = 0.0, include_flagged: bool = True,
+) -> CsvSummary:
+    kept = [(p, f) for p, f in items if f.snr >= min_snr and (include_flagged or not f.flag)]
+    below = sum(f.snr < min_snr for _, f in items)
+    excluded = 0 if include_flagged else sum(bool(f.flag) for _, f in items if f.snr >= min_snr)
+    if not kept:
+        raise ValueError(f'kind {name!r}: no picks left after filtering')
+    path = out_dir / 'csv' / f'{name}.csv'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, 'w', newline='') as handle:
+        writer = csv.writer(handle)
+        writer.writerow(['tomogram', 'kind', 'pick_x', 'pick_y', 'pick_z', 'fit_x', 'fit_y', 'fit_z', 'radius_a', 'box_a', 'snr', 'flag'])
+        for p, f in kept:
+            writer.writerow([
+                p.tomogram, p.kind, f'{p.x:.2f}', f'{p.y:.2f}', f'{p.z:.2f}', f'{f.x:.2f}', f'{f.y:.2f}', f'{f.z:.2f}',
+                f'{f.radius_a:.2f}', f'{f.box_a:.2f}', f'{f.snr:.3f}', f.flag,
+            ])
+    return CsvSummary(name, len(kept), below, excluded, path)
