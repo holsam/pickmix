@@ -4,7 +4,7 @@ pickmix: main GUI window
 
 # Import external dependencies
 from pathlib import Path
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QLineEdit, QLayout, QMainWindow, QTabWidget
 
@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         self._resizing = QPropertyAnimation(self, b'geometry', self)
         self._resizing.setDuration(RESIZE_MS)
         self._resizing.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._resizing.finished.connect(self._apply_minimum)
         self._restart = QTimer(self)
         self._restart.setSingleShot(True)
         self._restart.setInterval(500)
@@ -131,9 +132,16 @@ class MainWindow(QMainWindow):
         self._resizing.setEndValue(end)
         self._resizing.start()
 
-    # _fit_welcome: the smallest the window may be: small on the welcome page, as small as the tabs need once a project is open
+    # _fit_welcome: the welcome page has no tab bar and may be small; with a project open the tabs show and set the smallest size. Lowering the minimum is applied now, raising it waits for _apply_minimum
     def _fit_welcome(self, welcome: bool) -> None:
-        self.setMinimumSize(*WELCOME_MIN) if welcome else self.setMinimumSize(self.tabs.minimumSizeHint())
+        self.tabs.tabBar().setVisible(not welcome)
+        self._minimum = QSize(*WELCOME_MIN) if welcome else self.tabs.minimumSizeHint()
+        if welcome:
+            self.setMinimumSize(self._minimum)
+
+    # _apply_minimum: set the window's smallest size once any resize has finished; raising it earlier would snap the window to it from its top-left corner and lose the centre
+    def _apply_minimum(self) -> None:
+        self.setMinimumSize(self._minimum)
 
     # _set_enabled: Project is always usable; Pick, Review and Export need a session
     def _set_enabled(self, *, session: bool) -> None:
@@ -145,7 +153,9 @@ class MainWindow(QMainWindow):
         # only the first project after the welcome page resizes; reloads and settings restarts keep the user's size
         if self.project is None:
             self._fit_welcome(False)
-            self._resize_about_centre(PROJECT_SIZE)
+            self._resize_about_centre((max(PROJECT_SIZE[0], self._minimum.width()), max(PROJECT_SIZE[1], self._minimum.height())))
+            if self._resizing.state() != QAbstractAnimation.State.Running:
+                self._apply_minimum()
         self.project = project
         self.setWindowTitle(f'pickmix • {project.display_name}')
         self._shutdown()

@@ -5,7 +5,7 @@ pickmix: tests for GUI main window
 # Import external dependencies
 from collections.abc import Callable
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QAbstractAnimation, QSize, Qt
 from PySide6.QtGui import QShortcut
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
@@ -125,6 +125,36 @@ class TestMainWindow:
         qtbot.wait(400)
         assert window.frameGeometry().left() >= area.left() and window.frameGeometry().top() >= area.top()
         assert window.frameGeometry().right() <= area.right() or window.frameGeometry().width() > area.width()
+
+    # test_welcome_has_no_tab_bar: the tab bar only shows while a project is open
+    def test_welcome_has_no_tab_bar(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        assert not window.tabs.tabBar().isVisible()
+        window.project_tab.set_project(open_project(make_config()))
+        assert window.tabs.tabBar().isVisible()
+        window.project_tab.close_button.click()
+        assert not window.tabs.tabBar().isVisible()
+
+    # test_open_grows_about_centre: opening a project from the welcome page keeps the window's centre, even though the tabs' minimum size is bigger than the welcome page
+    def test_open_grows_about_centre(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        monkeypatch.setattr('pickmix.gui.main_window.PROJECT_SIZE', (620, 360))
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.show()
+        window.setMinimumSize(0, 0)
+        window.resize(520, 300)
+        area = window.screen().availableGeometry()
+        frame = window.frameGeometry()
+        frame.moveCenter(area.center())
+        window.move(frame.topLeft())
+        centre = window.frameGeometry().center()
+        monkeypatch.setattr(window.tabs, 'minimumSizeHint', lambda: QSize(600, 350))
+        window.project_tab.set_project(open_project(make_config()))
+        qtbot.waitUntil(lambda: window._resizing.state() == QAbstractAnimation.State.Stopped, timeout=3000)
+        assert window.width() >= 620 and (window.frameGeometry().center() - centre).manhattanLength() <= 3
+        assert window.minimumSize() == QSize(600, 350)
 
     # test_resize_is_instant_before_show: a window not yet shown takes its size at once
     def test_resize_is_instant_before_show(self, qtbot: QtBot) -> None:
