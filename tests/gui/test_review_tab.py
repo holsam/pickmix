@@ -71,18 +71,51 @@ class TestReviewTab:
         tab.kind_filter.setCurrentText('bad')
         assert tab.table.rowCount() == 1 and tab.table.item(0, 6).text() == 'error'
         tab.kind_filter.setCurrentText('(all)')
-        tab.flagged_box.setChecked(True)
+        tab.flag_filter.setCurrentText('Flagged only')
         assert [tab.table.item(r, 1).text() for r in range(tab.table.rowCount())] == ['bad']
 
-    # test_delete_flagged: only flagged picks shown are removed
-    def test_delete_flagged(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+    # test_delete_shown: only the picks the filters show are removed, here the flagged ones
+    def test_delete_shown(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()
         good = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
         session.store.add(NAME, 'bad', 1.0, 1.0, 1.0)
         qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
-        tab.refresh()
-        assert tab.delete_flagged() == 1
+        tab.flag_filter.setCurrentText('Flagged only')
+        assert tab.delete_shown() == 1
         assert [p.id for p in session.store.all()] == [good.id]
+
+    # test_delete_selected: the selected pick goes, others stay, and nothing selected deletes nothing
+    def test_delete_selected(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, service = setup()
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        second = session.store.add(NAME, 'yellow', 5.0, 3.0, 2.0)
+        tab.refresh()
+        tab.table.clearSelection()
+        tab.table.setCurrentCell(-1, -1)
+        assert tab.delete_selected() == 0
+        tab.table.selectRow(0)
+        assert tab.delete_selected() == 1
+        assert [p.id for p in session.store.all()] == [second.id]
+
+    # test_flag_filter_modes: all, flagged only and non-flagged only partition the picks
+    def test_flag_filter_modes(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, service = setup()
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        session.store.add(NAME, 'bad', 1.0, 1.0, 1.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
+        tab.refresh()
+        counts = []
+        for choice in ('(all)', 'Flagged only', 'Non-flagged only'):
+            tab.flag_filter.setCurrentText(choice)
+            counts.append(tab.table.rowCount())
+        assert counts == [2, 1, 1]
+
+    # test_controls_layout: filters, buttons and the count are three separate columns of one row
+    def test_controls_layout(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.flag_filter.itemText(0) == '(all)' and tab.reestimate_button.text() == 'Re-estimate all'
+        assert not tab.reestimate_button.icon().isNull()
+        assert not hasattr(tab, 'delete_button') and not hasattr(tab, 'flagged_box')
 
     # test_crops: preview crops are cut around the pick
     def test_crops(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
