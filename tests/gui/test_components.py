@@ -12,6 +12,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
+from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, status_item
 from pickmix.gui.components.toast import notify
 from pickmix.gui.main_window import MainWindow
@@ -30,6 +31,14 @@ def _canvas(qtbot: QtBot) -> SliceCanvas:
     canvas.show()
     canvas.set_image(np.zeros((30, 40), dtype=np.float32), 0.0, 1.0)
     return canvas
+
+# _slider: a 200 px wide slider over 0 to 100 at 20 and 80
+def _slider(qtbot: QtBot) -> RangeSlider:
+    slider = RangeSlider(0, 100)
+    qtbot.addWidget(slider)
+    slider.resize(200, 24)
+    slider.set_values(20, 80)
+    return slider
 
 # _view_pos: viewport position of a scene position
 def _view_pos(canvas: SliceCanvas, x: float, y: float) -> QPoint:
@@ -149,6 +158,42 @@ class TestIcons:
         image = tinted('check', '#2e9e44').pixmap(16, 16).toImage()
         opaque = [image.pixelColor(x, y) for x in range(16) for y in range(16) if image.pixelColor(x, y).alpha() > 200]
         assert opaque and all(c.name() == '#2e9e44' for c in opaque)
+
+# TestRangeSlider: two-handle slider
+class TestRangeSlider:
+    # test_clamps: values stay inside the range and low never passes high
+    def test_clamps(self, qtbot: QtBot) -> None:
+        slider = _slider(qtbot)
+        slider.set_values(-5, 500)
+        assert slider.values() == (0, 100)
+        slider.set_values(70, 30)
+        assert slider.values() == (70, 70)
+
+    # test_silent_by_default: set_values only announces when asked
+    def test_silent_by_default(self, qtbot: QtBot) -> None:
+        slider = _slider(qtbot)
+        with qtbot.assertNotEmitted(slider.valueChanged):
+            slider.set_values(10, 90)
+        with qtbot.waitSignal(slider.valueChanged) as blocker:
+            slider.set_values(30, 90, emit=True)
+        assert blocker.args == [30, 90]
+
+    # test_keys: arrows move the active handle, Up and Down switch handle
+    def test_keys(self, qtbot: QtBot) -> None:
+        slider = _slider(qtbot)
+        QTest.keyClick(slider, Qt.Key.Key_Right)
+        assert slider.values() == (21, 80)
+        QTest.keyClick(slider, Qt.Key.Key_Up)
+        QTest.keyClick(slider, Qt.Key.Key_PageDown)
+        assert slider.values() == (21, 70)
+
+    # test_mouse_grabs_nearest_handle: pressing near a handle moves that one
+    def test_mouse_grabs_nearest_handle(self, qtbot: QtBot) -> None:
+        slider = _slider(qtbot)
+        QTest.mousePress(slider, Qt.MouseButton.LeftButton, pos=QPoint(round(slider._x(75)), 12))
+        QTest.mouseRelease(slider, Qt.MouseButton.LeftButton, pos=QPoint(round(slider._x(75)), 12))
+        low, high = slider.values()
+        assert low == 20 and abs(high - 75) <= 1
 
 # TestStatus: status cells and badges
 class TestStatus:
