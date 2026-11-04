@@ -16,6 +16,7 @@ from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import icon
+from pickmix.gui.components.status import StatusBadge, fit_status
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
 from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title
@@ -73,14 +74,17 @@ class PickTab(QWidget):
         self.invert_box = QCheckBox('Invert')
         self.auto_button = QPushButton('Auto')
         self.fit_button = QPushButton('Fit')
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(['Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(['', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setMaximumHeight(170)
+        # status marker first and fixed so kinds always line up; Kind fits its names, the number columns share the rest
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setColumnWidth(0, 28)
         self.delete_button = QPushButton('Delete selected')
         for button in (self.auto_button, self.fit_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -409,7 +413,6 @@ class PickTab(QWidget):
         self._fill_table()
         if self.opened is not None:
             self.canvas.set_markers(self._markers())
-            self.status.setText(f'Estimating {self.service.pending}...' if self.service and self.service.pending else '')
 
     # _match: parent geometry for the picks of the current tomogram, per kind that has a parent
     def _match(self) -> dict[str, dict[int, Parent]]:
@@ -443,7 +446,7 @@ class PickTab(QWidget):
                 out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag) or unmatched, view, normal))
         return out
 
-    # _fill_table: the current tomogram's picks of known kinds, with the selected one highlighted
+    # _fill_table: the current tomogram's picks of known kinds, each with its estimate status, and the selected one highlighted
     def _fill_table(self) -> None:
         assert self.session is not None
         name = self.session.current
@@ -457,7 +460,10 @@ class PickTab(QWidget):
             snr, flag = ('', '') if fit is None else (f'{fit.snr:.2f}', fit.flag)
             if fit is not None and kinds[p.kind].parent is not None and p.id not in self._matched.get(p.kind, {}):
                 flag = ','.join(filter(None, [flag, 'noparent']))
-            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag)):
+            status = fit_status(self.service.store.state(p) if self.service else 'ok', flag)
+            tip = {'running': 'Estimating...', 'ok': 'Estimate is fine'}.get(status, flag)
+            self.table.setCellWidget(r, 0, StatusBadge(status, tip))
+            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag), start=1):
                 self.table.setItem(r, c, QTableWidgetItem(text))
         self._select(self.canvas.selected_id)
 

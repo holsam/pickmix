@@ -13,7 +13,7 @@ from pytestqt.qtbot import QtBot
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
 from pickmix.gui.components.range_slider import RangeSlider
-from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, status_item
+from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, fit_status, status_item
 from pickmix.gui.components.toast import notify
 from pickmix.gui.style import OK
 from pickmix.gui.main_window import MainWindow
@@ -224,6 +224,12 @@ class TestStatus:
         assert not badge._timer.isActive() and badge.toolTip() == 'fine'
         badge.set_status(None)
         assert badge.pixmap().isNull() and badge.text() == ''
+
+    # test_fit_status: no current fit runs, an error flag errors, any other flag warns, none is ok
+    def test_fit_status(self) -> None:
+        assert fit_status('missing', '') == 'running' and fit_status('stale', 'x') == 'running'
+        assert fit_status('ok', 'error') == 'error' and fit_status('ok', 'noparent,error') == 'error'
+        assert fit_status('ok', 'noparent') == 'warn' and fit_status('ok', '') == 'ok'
 
 # TestToast: toast and notify
 class TestToast:

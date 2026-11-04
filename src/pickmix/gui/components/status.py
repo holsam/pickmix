@@ -48,6 +48,15 @@ def status_item(status: Status | None, tip: str = '') -> QTableWidgetItem:
     item.setToolTip(tip)
     return item
 
+# fit_status: running while there is no current fit, error for an error flag, warn for any other flag, else ok
+def fit_status(state: str, flag: str) -> Status:
+    if state != 'ok':
+        return 'running'
+    flags = set(filter(None, flag.split(',')))
+    if 'error' in flags:
+        return 'error'
+    return 'warn' if flags else 'ok'
+
 # StatusBadge: one status as a label; running turns the icon, so it suits single widgets and short tables
 class StatusBadge(QLabel):
     # __init__: start empty

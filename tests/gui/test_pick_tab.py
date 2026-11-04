@@ -61,7 +61,7 @@ class TestPickTab:
         [pick] = session.store.all()
         assert (pick.kind, pick.x, pick.y, pick.z) == ('cage', 3.0, 2.0, 2.0)
         assert tab.canvas.marker_ids() == [pick.id] and tab.canvas.selected_id == pick.id
-        assert tab.table.rowCount() == 1 and tab.table.item(0, 0).text() == 'cage'
+        assert tab.table.rowCount() == 1 and tab.table.item(0, 1).text() == 'cage'
 
     # test_kind_switch: number keys choose the kind that new picks get
     def test_kind_switch(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
@@ -129,8 +129,8 @@ class TestPickTab:
         tab, session = setup()
         pick = session.store.add('Position_1_2', 'yellow', 3.0, 2.0, 2.0)
         qtbot.waitUntil(lambda: tab.canvas.overlay_visible(pick.id)[1], timeout=5000)
-        qtbot.waitUntil(lambda: tab.table.item(0, 4) is not None and tab.table.item(0, 4).text() == '0.00', timeout=5000)
-        assert tab.table.item(0, 5).text() == ''
+        qtbot.waitUntil(lambda: tab.table.item(0, 5) is not None and tab.table.item(0, 5).text() == '0.00', timeout=5000)
+        assert tab.table.item(0, 6).text() == ''
 
     # test_show_pick: a pick in another tomogram opens that tomogram and selects the pick
     def test_show_pick(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
@@ -148,8 +148,8 @@ class TestPickTab:
         near = session.store.add('Position_1_2', 'green', 3.0 + 56.0, 2.0, 2.0)
         session.store.add('Position_1_2', 'green', 3.0 + 20.0, 2.0, 2.0)
         qtbot.waitUntil(lambda: tab.canvas.normal_visible(near.id), timeout=5000)
-        qtbot.waitUntil(lambda: 'noparent' in {tab.table.item(r, 5).text() for r in range(tab.table.rowCount())}, timeout=5000)
-        assert [tab.table.item(r, 5).text() for r in range(3)] == ['', '', 'noparent']
+        qtbot.waitUntil(lambda: 'noparent' in {tab.table.item(r, 6).text() for r in range(tab.table.rowCount())}, timeout=5000)
+        assert [tab.table.item(r, 6).text() for r in range(3)] == ['', '', 'noparent']
 
     # test_hotkeys_follow_config: keys choose the kind the config puts on them, and buttons show their number
     def test_hotkeys_follow_config(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
@@ -200,7 +200,7 @@ class TestPickTab:
             assert tab.settings.isAncestorOf(widget)
         assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
         header = tab.table.horizontalHeader()
-        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.ResizeToContents and header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed and header.sectionResizeMode(1) == QHeaderView.ResizeMode.ResizeToContents
 
     # test_tomo_pane_toggle: the tomogram pane sits in the tab and its button hides and shows it
     def test_tomo_pane_toggle(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
@@ -217,3 +217,11 @@ class TestPickTab:
         tab, session = setup(THREE)
         tab.tomo._clicked(tab.tomo.list.item(2))
         assert session.current == 'Other_9' and tab.title.text() == 'Other_9'
+
+    # test_status_badges: each row has a badge, spinning until the estimate arrives and ok after
+    def test_status_badges(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.store.add('Position_1_2', 'yellow', 3.0, 2.0, 2.0)
+        assert tab.table.horizontalHeaderItem(0).text() == '' and tab.table.cellWidget(0, 0) is not None
+        qtbot.waitUntil(lambda: tab.table.cellWidget(0, 0).status == 'ok', timeout=5000)
+        assert tab.status.text() == ''
