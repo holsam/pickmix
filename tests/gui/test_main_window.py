@@ -5,6 +5,8 @@ pickmix: tests for GUI main window
 # Import external dependencies
 from collections.abc import Callable
 from pathlib import Path
+from PySide6.QtGui import QShortcut
+from PySide6.QtWidgets import QApplication, QLineEdit
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
@@ -135,5 +137,50 @@ class TestMainWindow:
         window._on_settings()
         assert window.session is old
         qtbot.waitUntil(lambda: window.session is not old, timeout=3000)
+        window.service.shutdown()
+        window.loader.shutdown()
+
+    # test_pick_keys_are_window_wide: number and delete keys are window shortcuts, so they do not depend on canvas focus
+    def test_pick_keys_are_window_wide(self, qtbot: QtBot) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        keys = {s.key().toString(): s for s in window.findChildren(QShortcut)}
+        assert all(str(i) in keys for i in range(1, 10)) and 'Delete' in keys and 'Backspace' in keys
+        assert all(s.context() == Qt.ShortcutContext.WindowShortcut for s in keys.values())
+
+    # test_hotkey_and_delete_from_other_focus: with focus off the canvas, a hotkey still picks the kind and delete still removes the pick
+    def test_hotkey_and_delete_from_other_focus(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        project = open_project(path)
+        project.update(kinds={'cage': Kind(marker_a=600, box_a=700), 'yellow': Kind(marker_a=100, box_a=100)})
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(path))
+        window.tabs.setCurrentWidget(window.pick_tab)
+        qtbot.waitUntil(lambda: window.pick_tab.canvas.has_image, timeout=5000)
+        window.tabs.tabBar().setFocus()
+        window._hotkey(1)
+        assert window.pick_tab.active == 'yellow'
+        window.pick_tab.canvas.add_requested.emit(3.0, 2.0)
+        window._delete_pick()
+        assert window.session.store.total() == 0
+        window.service.shutdown()
+        window.loader.shutdown()
+
+    # test_pick_keys_ignored_elsewhere: not on another tab and not while typing in a text box
+    def test_pick_keys_ignored_elsewhere(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
+        path = make_config()
+        project = open_project(path)
+        project.update(kinds={'cage': Kind(marker_a=600, box_a=700), 'yellow': Kind(marker_a=100, box_a=100)})
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(path))
+        qtbot.waitUntil(lambda: window.pick_tab.canvas.has_image, timeout=5000)
+        window._hotkey(1)
+        assert window.pick_tab.active == 'cage'
+        window.tabs.setCurrentWidget(window.pick_tab)
+        monkeypatch.setattr(QApplication, 'focusWidget', staticmethod(lambda: QLineEdit()))
+        window._hotkey(1)
+        assert window.pick_tab.active == 'cage'
         window.service.shutdown()
         window.loader.shutdown()

@@ -66,11 +66,11 @@ class TestPickTab:
     # test_kind_switch: number keys choose the kind that new picks get
     def test_kind_switch(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()
-        tab._pick_kind(1)
+        tab.pick_kind(1)
         assert tab.active == 'yellow' and tab.kind_buttons['yellow'].isChecked()
         tab.canvas.add_requested.emit(1.0, 1.0)
         assert session.store.all()[0].kind == 'yellow'
-        tab._pick_kind(8)
+        tab.pick_kind(8)
         assert tab.active == 'yellow'
 
     # test_move_and_delete: moving keeps z, deleting removes the marker
@@ -156,11 +156,11 @@ class TestPickTab:
         tab, session = setup()
         session.project.update(hotkeys=['', 'green', 'cage'])
         tab.refresh_kinds()
-        tab._pick_kind(0)
+        tab.pick_kind(0)
         assert tab.active == 'cage'
-        tab._pick_kind(1)
+        tab.pick_kind(1)
         assert tab.active == 'green'
-        tab._pick_kind(2)
+        tab.pick_kind(2)
         assert tab.active == 'cage'
         assert tab.kind_buttons['green'].text() == '(2) green' and tab.kind_buttons['yellow'].text() == 'yellow'
 
@@ -172,7 +172,7 @@ class TestPickTab:
         assert tab.active is None and tab.kind_buttons == {}
         tab.canvas.add_requested.emit(1.0, 1.0)
         assert session.store.all() == []
-        tab._pick_kind(0)
+        tab.pick_kind(0)
         assert tab.active is None
 
     # test_title_is_name_only: the title is the tomogram name, with the navigation help kept below
@@ -189,7 +189,7 @@ class TestPickTab:
         assert tab.kind_buttons['yellow'].minimumWidth() > 0
         tab.kind_toggles['yellow'].click()
         assert 'yellow' in tab.hidden and not tab.kind_toggles['yellow'].isChecked()
-        tab._pick_kind(1)
+        tab.pick_kind(1)
         assert tab.active == 'yellow'
 
     # test_layout: Z is a vertical scrollbar and image and overlay controls sit in the settings pane

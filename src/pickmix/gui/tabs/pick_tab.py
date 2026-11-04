@@ -6,7 +6,6 @@ pickmix: Pick tab
 import numpy as np
 from concurrent.futures import Future
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
     QScrollBar, QSlider, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
@@ -140,12 +139,6 @@ class PickTab(QWidget):
         self.canvas.marker_clicked.connect(self._clicked)
         self.canvas.z_scrolled.connect(lambda steps: self.z_slider.setValue(self.z_slider.value() + steps))
         self.table.cellClicked.connect(self._row_clicked)
-        for i in range(1, 10):
-            QShortcut(QKeySequence(str(i)), self, context=Qt.ShortcutContext.WidgetWithChildrenShortcut).activated.connect(
-                lambda i=i: self._pick_kind(i - 1)
-            )
-        for key in ('Delete', 'Backspace'):
-            QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WidgetWithChildrenShortcut).activated.connect(self.delete_selected)
 
     # set_session: show a session and follow its picks and navigation
     def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
@@ -234,8 +227,8 @@ class PickTab(QWidget):
         self.active = name
         self.kind_buttons[name].setChecked(True)
 
-    # _pick_kind: choose the kind on the i-th hotkey
-    def _pick_kind(self, i: int) -> None:
+    # pick_kind: choose the kind on the i-th hotkey
+    def pick_kind(self, i: int) -> None:
         name = self.session.project.config.hotkeys[i] if self.session is not None else ''
         if name in self.kind_buttons:
             self._set_active(name)

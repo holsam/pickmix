@@ -63,6 +63,10 @@ class MainWindow(QMainWindow):
         for keys, delta in (('Return', 1), ('Enter', 1), ('Shift+Return', -1), ('Shift+Enter', -1)):
             shortcut = QShortcut(QKeySequence(keys), self, context=Qt.ShortcutContext.WindowShortcut)
             shortcut.activated.connect(lambda delta=delta: self._step(delta))
+        for i in range(1, 10):
+            QShortcut(QKeySequence(str(i)), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(lambda i=i: self._hotkey(i - 1))
+        for key in ('Delete', 'Backspace'):
+            QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(self._delete_pick)
 
     # open_config: open a config.toml in the Project tab
     def open_config(self, path: Path) -> None:
@@ -75,6 +79,20 @@ class MainWindow(QMainWindow):
         if isinstance(QApplication.focusWidget(), QLineEdit):
             return
         self.session.step(delta)
+
+    # _picking: whether Pick tab keys apply: a session, the Pick tab showing and no text box (a spin box counts as one) being typed into
+    def _picking(self) -> bool:
+        return (self.session is not None and self.tabs.currentWidget() is self.pick_tab and not isinstance(QApplication.focusWidget(), QLineEdit))
+
+    # _hotkey: the number key for the i-th kind, from wherever focus is
+    def _hotkey(self, i: int) -> None:
+        if self._picking():
+            self.pick_tab.pick_kind(i)
+
+    # _delete_pick: Delete or Backspace removes the selected pick, from wherever focus is
+    def _delete_pick(self) -> None:
+        if self._picking():
+            self.pick_tab.delete_selected()
 
     # _sync_dock: the tomogram dock is only for the Pick tab, and only with a session
     def _sync_dock(self) -> None:
