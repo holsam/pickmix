@@ -24,7 +24,7 @@ class TomoPane(QWidget):
         self.session: Session | None = None
         self.visited = QLabel()
         self.jump_edit = QLineEdit()
-        self.jump_edit.setPlaceholderText('go to number or name, then Enter')
+        self.jump_edit.setPlaceholderText('go to number or name')
         self.header = QLabel()
         self.list = QListWidget()
         self.list.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
@@ -41,7 +41,6 @@ class TomoPane(QWidget):
         layout.addWidget(self.jump_edit)
         layout.addWidget(self.header)
         layout.addWidget(self.list, 1)
-        self.jump_edit.returnPressed.connect(self._jump)
         self.list.itemClicked.connect(self._clicked)
         self.jump_edit.textChanged.connect(lambda _text: self._live.start())
 
@@ -74,14 +73,6 @@ class TomoPane(QWidget):
         if rows:
             self.list.scrollToItem(self.list.item(self.session.index))
         self.visited.setText(f'Visited {sum(r.visited for r in rows)}/{len(rows)}')
-
-    # _jump: go to the typed number or name
-    def _jump(self) -> None:
-        if self.session is not None and self.session.jump(self.jump_edit.text()):
-            self.jump_edit.clear()
-            self.jump_edit.clearFocus()
-        else:
-            self.jump_edit.selectAll()
 
     # _live_jump: show the tomogram the typed text matches, keeping the text so typing can go on
     def _live_jump(self) -> None:

@@ -15,12 +15,11 @@ from PySide6.QtWidgets import (
 from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
-from pickmix.gui.components.icons import icon
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import StatusBadge, fit_status
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, quiet_table, tidy, title, view_toggle
+from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -51,8 +50,7 @@ class PickTab(QWidget):
         self.status = QLabel()
         self.tomo = TomoPane()
         self.tomo.setMinimumWidth(200)
-        self.tomo_toggle = QToolButton()
-        self.tomo_toggle.setAutoRaise(True)
+        self.tomo_toggle = icon_button('left_panel_close', '<', 'Hide the tomogram list', size=20)
         self.tomo_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.tomo_toggle.clicked.connect(lambda: self.set_tomo_visible(self.tomo.isHidden()))
         self.kind_box = QVBoxLayout()
@@ -86,13 +84,8 @@ class PickTab(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setColumnWidth(0, 28)
-        self.delete_button = QPushButton()
-        trash = icon('delete')
-        if trash is None:
-            self.delete_button.setText('Delete')
-        else:
-            self.delete_button.setIcon(trash)
-        self.delete_button.setToolTip('Delete the selected pick (Delete)')
+        self.delete_button = icon_button('delete', 'Delete', 'Delete the selected pick (Delete)')
+        self.delete_button.setEnabled(False)
         for button in (self.fit_button, self.fill_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._row_ids: list[int] = []
@@ -265,7 +258,7 @@ class PickTab(QWidget):
     # set_tomo_visible: show or hide the tomogram pane; the icon is the action the button takes
     def set_tomo_visible(self, shown: bool) -> None:
         self.tomo.setVisible(shown)
-        panel = icon('left_panel_close' if shown else 'left_panel_open')
+        panel = white('left_panel_close' if shown else 'left_panel_open', 20)
         if panel is None:
             self.tomo_toggle.setText('<' if shown else '>')
         else:
@@ -450,6 +443,8 @@ class PickTab(QWidget):
         self._fill_table()
         if self.opened is not None:
             self.canvas.set_markers(self._markers())
+        # the canvas drops a selection whose pick is gone
+        self._sync_delete()
 
     # _match: parent geometry for the picks of the current tomogram, per kind that has a parent
     def _match(self) -> dict[str, dict[int, Parent]]:
@@ -511,6 +506,11 @@ class PickTab(QWidget):
             self.table.selectRow(self._row_ids.index(pick_id))
         else:
             self.table.clearSelection()
+        self._sync_delete()
+
+    # _sync_delete: Delete is only live while a pick is selected
+    def _sync_delete(self) -> None:
+        self.delete_button.setEnabled(self.canvas.selected_id is not None)
 
     # _add: new pick of the active kind on the current slice
     def _add(self, x: float, y: float) -> None:

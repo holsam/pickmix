@@ -393,15 +393,14 @@ class TestTomoPane:
         assert pane.visited.text() == 'Visited 2/3'
         assert not hasattr(pane, 'totals')
 
-    # test_jump_box: a name jumps and clears the box, no match keeps the text
-    def test_jump_box(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+    # test_enter_does_nothing: Enter in the search box changes nothing, matching is live only
+    def test_enter_does_nothing(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         pane, session = _tomo_pane(qtbot, make_config)
+        before = session.current
         pane.jump_edit.setText('other')
+        pane._live.stop()
         pane.jump_edit.returnPressed.emit()
-        assert session.current == 'Other_9' and pane.jump_edit.text() == ''
-        pane.jump_edit.setText('zzz')
-        pane.jump_edit.returnPressed.emit()
-        assert session.current == 'Other_9' and pane.jump_edit.text() == 'zzz'
+        assert session.current == before and pane.jump_edit.text() == 'other'
 
 # TestWelcomePane: welcome pane
 class TestWelcomePane:

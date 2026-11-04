@@ -103,6 +103,15 @@ class TestPickTab:
         tab.canvas.z_scrolled.emit(-9)
         assert tab.z == 0
 
+    # test_delete_needs_selection: Delete is greyed until a pick is selected and again once it is gone
+    def test_delete_needs_selection(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert not tab.delete_button.isEnabled()
+        tab.canvas.add_requested.emit(3.0, 2.0)
+        assert tab.delete_button.isEnabled()
+        tab.delete_selected()
+        assert not tab.delete_button.isEnabled()
+
     # test_hide_kind: a hidden kind's markers go but its picks stay in the list
     def test_hide_kind(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()
@@ -246,6 +255,7 @@ class TestPickTab:
         assert tab.tomo.isHidden()
         tab.tomo_toggle.click()
         assert not tab.tomo.isHidden()
+        assert not tab.tomo_toggle.icon().isNull()
 
     # test_tomo_pane_navigates: choosing a tomogram in the pane changes the tomogram shown
     def test_tomo_pane_navigates(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:

@@ -92,9 +92,10 @@ class RangeSlider(QWidget):
         painter.setBrush(palette.highlight())
         painter.drawRoundedRect(QRectF(self._x(self._low), mid - 2, self._x(self._high) - self._x(self._low), 4), 2, 2)
         for which, value in (('low', self._low), ('high', self._high)):
-            ring = palette.highlight().color() if self.hasFocus() and which == self._active else palette.dark().color()
-            painter.setPen(QPen(ring, 2))
-            painter.setBrush(palette.base())
+            focused = self.hasFocus() and which == self._active
+            # solid, the same colour as the span; a light ring marks the handle the keys move
+            painter.setPen(QPen(palette.light().color(), 2) if focused else Qt.PenStyle.NoPen)
+            painter.setBrush(palette.highlight())
             painter.drawEllipse(QPointF(self._x(value), mid), _HANDLE - 1, _HANDLE - 1)
 
     # _x: pixel position of a value

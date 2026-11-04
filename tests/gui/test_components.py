@@ -42,6 +42,11 @@ def _slider(qtbot: QtBot) -> RangeSlider:
     slider.set_values(20, 80)
     return slider
 
+# _handle_colour: colour of the pixel at a handle centre in a rendered slider
+def _handle_colour(slider: RangeSlider, value: int) -> QColor:
+    image = slider.grab().toImage()
+    return image.pixelColor(round(slider._x(value)), slider.height() // 2)
+
 # _view_pos: viewport position of a scene position
 def _view_pos(canvas: SliceCanvas, x: float, y: float) -> QPoint:
     return canvas.mapFromScene(QPointF(x + 0.5, y + 0.5))
@@ -203,6 +208,14 @@ class TestImages:
 
 # TestRangeSlider: two-handle slider
 class TestRangeSlider:
+    # test_solid_handles: an unfocused handle is filled with the highlight colour, like the span
+    def test_solid_handles(self, qtbot: QtBot) -> None:
+        slider = _slider(qtbot)
+        slider.show()
+        want = slider.palette().highlight().color()
+        got = _handle_colour(slider, 20)
+        assert all(abs(a - b) <= 2 for a, b in zip((got.red(), got.green(), got.blue()), (want.red(), want.green(), want.blue())))
+
     # test_clamps: values stay inside the range and low never passes high
     def test_clamps(self, qtbot: QtBot) -> None:
         slider = _slider(qtbot)
