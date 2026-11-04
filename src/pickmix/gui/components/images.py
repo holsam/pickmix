@@ -30,7 +30,7 @@ def label_cells(image: QImage, labels: list[str], grid: int, pad: int, *, scale:
     cell = (out.width() - gap) / grid - gap
     painter = QPainter(out)
     font = painter.font()
-    font.setPixelSize(max(8, int(cell / 4)))
+    font.setPixelSize(max(6, int(cell / 8)))
     painter.setFont(font)
     for i, text in enumerate(labels):
         row, col = divmod(i, grid)

@@ -206,6 +206,20 @@ class TestImages:
                 assert out.pixelColor(x + 1, y + 1).red() < base.pixelColor(x + 1, y + 1).red()
                 assert out.pixelColor(x + box - 2, y + box - 2) == base.pixelColor(x + box - 2, y + box - 2).toRgb()
 
+    # test_label_cells_stay_in_their_cell: a long label is clipped inside its own cell, never spilling into the padding or the next cell
+    def test_label_cells_stay_in_their_cell(self, qtbot: QtBot) -> None:
+        grid, box, pad = 2, 60, 2
+        size = grid * (box + pad) + pad
+        base = to_image(np.full((size, size), 200.0) + np.random.default_rng(1).random((size, size)))
+        out = label_cells(base, ['12 (a_very_long_tomogram_name_indeed)'] * 4, grid, pad)
+        for row in range(grid):
+            for col in range(grid):
+                x, y = pad + col * (box + pad), pad + row * (box + pad)
+                # a label drawn in, then the padding column just right of the cell is untouched
+                assert out.pixelColor(x + 1, y + 1).red() < base.pixelColor(x + 1, y + 1).red()
+                for dy in range(0, 10):
+                    assert out.pixelColor(x + box, y + dy) == base.pixelColor(x + box, y + dy).toRgb()
+
 # TestRangeSlider: two-handle slider
 class TestRangeSlider:
     # test_solid_handles: an unfocused handle is filled with the highlight colour, like the span

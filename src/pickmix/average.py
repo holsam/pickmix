@@ -50,7 +50,6 @@ def average_kind(
     half = min(max(round(kind.marker_a / 2 / px), 1), box // 2)
     centre = box // 2
     images: dict[str, list[np.ndarray]] = {}
-    numbers = {t: i + 1 for i, t in enumerate(tomos)}
     origins: list[str] = []
     for tomogram in dict.fromkeys(p.tomogram for p, _ in items):
         vol = load_volume(tomos[tomogram], source=config.source)
@@ -60,7 +59,7 @@ def average_kind(
             cube = crop_box(vol, (round(f.z), round(f.y), round(f.x)), box)
             img = cube[centre - half : centre + half + 1].mean(axis=0)
             images.setdefault(tomogram, []).append((img - img.mean()) / (img.std() or 1.0))
-            origins.append(f'{numbers[tomogram]}/{len(images[tomogram])}')
+            origins.append(f'{len(images[tomogram])} ({tomogram})')
         log(f'{name} {tomogram}: {len(images[tomogram])} boxes')
     everything = [img for imgs in images.values() for img in imgs]
     chosen = np.linspace(0, len(everything) - 1, min(len(everything), _MONTAGE_MAX)).astype(int)

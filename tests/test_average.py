@@ -55,11 +55,11 @@ class TestAverage:
         with pytest.raises(ValueError, match='pixel size'):
             average_kind('yellow', Kind(marker_a=60, box_a=100), [_item(1, 'T', 20, 20, 20), _item(2, 'U', 20, 20, 20)], tomos, config)
 
-    # test_montage_labels: one label per cell, tomogram number over pick order, and the geometry matches the montage
+    # test_montage_labels: one label per cell, pick order within its tomogram and the tomogram name, and the geometry matches the montage
     def test_montage_labels(self, tmp_path: Path) -> None:
         tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20)]), 'U': _tomogram(tmp_path, 'U', [(20, 28, 20)])}
         config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
         items = [_item(1, 'T', 12, 20, 20), _item(2, 'T', 28, 20, 20), _item(3, 'U', 20, 28, 20)]
         r = average_kind('yellow', Kind(marker_a=60, box_a=100), items, tomos, config)
-        assert r.labels == ['1/1', '1/2', '2/1'] and r.grid == 2 and r.pad == 2
+        assert r.labels == ['1 (T)', '2 (T)', '1 (U)'] and r.grid == 2 and r.pad == 2
         assert r.montage.shape == (r.grid * (r.box_px + r.pad) + r.pad,) * 2
