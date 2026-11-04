@@ -14,16 +14,16 @@ from PySide6.QtWidgets import (
 from pickmix.average import AverageResult, average_kind, save_average
 from pickmix.estimates import EstimateService
 from pickmix.export import Item
-from pickmix.gui.components.images import label_cells, to_image, to_pixmap
+from pickmix.gui.components.images import FitLabel, label_cells, tile_cells, to_image, to_pixmap
 from pickmix.gui.components.status import StatusBadge
 from pickmix.gui.components.toast import notify
-from pickmix.gui.style import heading, help_marker, image_well, quiet_table, tidy
+from pickmix.gui.style import WELL_BG, WELL_TEXT, heading, help_marker, image_well, quiet_table, tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.model import Session
 
-# _MEAN, _MONTAGE: edge in pixels of the mean and of the montage
+# _MEAN, _MONTAGE: edge in pixels of the mean, and the smallest edge of the montage, which grows to fill its space
 _MEAN: int = 340
-_MONTAGE: int = 520
+_MONTAGE: int = 340
 
 # _LEFT: width in pixels of the controls column
 _LEFT: int = 280
@@ -53,9 +53,9 @@ class AveragePane(QGroupBox):
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.results_table.setToolTip('Show the mean of every pick, or of one tomogram')
         self.mean_label = QLabel('mean')
-        self.montage_label = QLabel('montage')
+        self.montage_label = FitLabel('montage', _MONTAGE)
+        self.montage_label.setStyleSheet(f'background: {WELL_BG}; color: {WELL_TEXT}')
         image_well(self.mean_label, _MEAN)
-        image_well(self.montage_label, _MONTAGE)
         # left: kind, run and summary, the tomogram list, then save
         kind_row = QHBoxLayout()
         kind_row.addWidget(QLabel('Kind'))
@@ -84,15 +84,13 @@ class AveragePane(QGroupBox):
         mean.addStretch()
         montage = QVBoxLayout()
         montage.addWidget(heading('Montage'))
-        montage.addWidget(self.montage_label)
-        montage.addStretch()
+        montage.addWidget(self.montage_label, 1)
         columns = QHBoxLayout()
         columns.addWidget(left)
         columns.addSpacing(16)
         columns.addLayout(mean)
         columns.addSpacing(16)
-        columns.addLayout(montage)
-        columns.addStretch()
+        columns.addLayout(montage, 1)
         body = QVBoxLayout(self)
         tidy(body)
         body.addLayout(columns)
@@ -164,6 +162,7 @@ class AveragePane(QGroupBox):
         self.results_table.setRowCount(0)
         self.mean_label.clear()
         self.mean_label.setText('mean')
+        self.montage_label.set_render(None)
         self.montage_label.clear()
         self.montage_label.setText('montage')
         self.save_button.setEnabled(False)
@@ -190,7 +189,7 @@ class AveragePane(QGroupBox):
         self.save_button.setEnabled(True)
         self.spinner.set_status(None)
         notify(f'Averaged {result.count} boxes of {result.box_px} px (Save to write them)')
-        self.montage_label.setPixmap(self._labelled(result))
+        self.montage_label.set_render(lambda width, height: self._tiled(result, width, height))
         rows = [('overall', result.count), *((t, result.counts[t]) for t in self._names)]
         self.results_table.setRowCount(len(rows))
         for r, (name, picks) in enumerate(rows):
@@ -204,10 +203,9 @@ class AveragePane(QGroupBox):
         self.spinner.set_status('error', message)
         notify(message)
 
-    # _labelled: the montage shown at display size with its cell labels drawn at that size
-    def _labelled(self, result: AverageResult) -> QPixmap:
-        shown = to_image(result.montage).scaled(_MONTAGE, _MONTAGE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-        return QPixmap.fromImage(label_cells(shown, result.labels, result.grid, result.pad, scale=shown.width() / result.montage.shape[1]))
+    # _tiled: the montage's cells laid out again to fill a pane of this size, labelled (what is saved stays the square montage)
+    def _tiled(self, result: AverageResult, width: int, height: int) -> QPixmap:
+        return QPixmap.fromImage(tile_cells(to_image(result.montage), result.labels, result.grid, result.pad, width, height))
 
     # _show_row: show the overall mean (row 0) or one tomogram's mean
     def _show_row(self, row: int) -> None:

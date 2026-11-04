@@ -12,7 +12,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
-from pickmix.gui.components.images import label_cells, label_image, to_image, to_pixmap
+from pickmix.gui.components.images import FitLabel, label_cells, tile_cells, label_image, to_image, to_pixmap
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, fit_status, status_item
 from pickmix.gui.components.toast import notify
@@ -219,6 +219,32 @@ class TestImages:
                 assert out.pixelColor(x + 1, y + 1).red() < base.pixelColor(x + 1, y + 1).red()
                 for dy in range(0, 10):
                     assert out.pixelColor(x + box, y + dy) == base.pixelColor(x + box, y + dy).toRgb()
+
+    # test_fit_label_fills: the image is redrawn at the largest square the label has room for, and follows a resize
+    def test_fit_label_fills(self, qtbot: QtBot) -> None:
+        label = FitLabel('x', minimum=50)
+        qtbot.addWidget(label)
+        label.show()
+        label.set_render(lambda width, height: QPixmap(width, height))
+        label.resize(400, 300)
+        assert (label.pixmap().width(), label.pixmap().height()) == (400, 300)
+        label.resize(200, 500)
+        assert (label.pixmap().width(), label.pixmap().height()) == (200, 500)
+        label.set_render(None)
+        label.resize(300, 300)
+        assert label.pixmap().width() == 200
+
+    # test_tile_cells_fill_a_wide_pane: a wide pane gets more columns than rows, every cell is drawn and the image is exactly the pane size
+    def test_tile_cells_fill_a_wide_pane(self, qtbot: QtBot) -> None:
+        grid, box, pad = 3, 20, 2
+        size = grid * (box + pad) + pad
+        base = to_image(np.full((size, size), 200.0) + np.random.default_rng(1).random((size, size)))
+        wide = tile_cells(base, ['a'] * 5, grid, pad, 600, 120)
+        assert (wide.width(), wide.height()) == (600, 120)
+        # five cells in a 600 x 120 pane sit in one row, so the pane's first and last fifths both hold image, not background
+        assert wide.pixelColor(60, 60) != QColor('#141414') and wide.pixelColor(540, 60) != QColor('#141414')
+        tall = tile_cells(base, ['a'] * 5, grid, pad, 120, 600)
+        assert tall.pixelColor(60, 60) != QColor('#141414') and tall.pixelColor(60, 540) != QColor('#141414')
 
 # TestRangeSlider: two-handle slider
 class TestRangeSlider:

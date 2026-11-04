@@ -3,12 +3,47 @@ pickmix: turning arrays into images and pixmaps for gui
 '''
 
 # Import external dependencies
-import numpy as np
-from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QImage, QPainter, QPixmap
+import math, numpy as np
+from collections.abc import Callable
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtWidgets import QLabel, QSizePolicy
 
 # Import internal pickmix objects
-from pickmix.gui.style import LABEL_BG, OVERLAY_TEXT
+from pickmix.gui.style import LABEL_BG, OVERLAY_TEXT, WELL_BG
+
+# TILE_GAP: pixels between the cells of a montage laid out again to fit a pane
+TILE_GAP: int = 2
+
+# FitLabel: a label that draws its image to fill all the room it has, again whenever it is resized
+class FitLabel(QLabel):
+    # __init__: expands to fill its space, never smaller than minimum pixels a side
+    def __init__(self, text: str = '', minimum: int = 240) -> None:
+        super().__init__(text)
+        self._render: Callable[[int, int], QPixmap] | None = None
+        self._preferred = minimum
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setMinimumSize(minimum, minimum)
+
+    # sizeHint: the smallest size it is happy with, so the layout hands it any spare room
+    def sizeHint(self) -> QSize:
+        return QSize(self._preferred, self._preferred)
+
+    # set_render: how to draw the image at a given width and height in pixels, or None to show the text instead
+    def set_render(self, render: Callable[[int, int], QPixmap] | None) -> None:
+        self._render = render
+        self._redraw()
+
+    # resizeEvent: draw the image again at the new size
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._redraw()
+
+    # _redraw: the image at the label's own size
+    def _redraw(self) -> None:
+        if self._render is not None and self.width() > 0 and self.height() > 0:
+            self.setPixmap(self._render(self.width(), self.height()))
 
 # to_image: a 2D array stretched between its 1st and 99th percentiles as an 8-bit grey image
 def to_image(arr: np.ndarray) -> QImage:
@@ -35,6 +70,35 @@ def label_cells(image: QImage, labels: list[str], grid: int, pad: int, *, scale:
     for i, text in enumerate(labels):
         row, col = divmod(i, grid)
         _draw_label(painter, int(gap + col * (cell + gap)), int(gap + row * (cell + gap)), text, int(cell))
+    painter.end()
+    return out
+
+# tile_cells: the cells of a square montage laid out again in the number of columns that makes them biggest in a width x height area, each labelled; the block is centred on a dark background
+def tile_cells(image: QImage, labels: list[str], grid: int, pad: int, width: int, height: int) -> QImage:
+    count = len(labels)
+    # side of one cell in the source image
+    box = (image.width() - pad) / grid - pad
+    def edge(cols: int) -> float:
+        rows = math.ceil(count / cols)
+        return min((width - TILE_GAP * (cols + 1)) / cols, (height - TILE_GAP * (rows + 1)) / rows)
+    cols = max(range(1, count + 1), key=edge)
+    rows, side = math.ceil(count / cols), max(edge(cols), 1.0)
+    out = QImage(width, height, QImage.Format.Format_RGB32)
+    out.fill(QColor(WELL_BG))
+    left = (width - cols * side - (cols + 1) * TILE_GAP) / 2
+    top = (height - rows * side - (rows + 1) * TILE_GAP) / 2
+    painter = QPainter(out)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    font = painter.font()
+    font.setPixelSize(max(6, int(side / 8)))
+    painter.setFont(font)
+    for i, text in enumerate(labels):
+        row, col = divmod(i, cols)
+        src_row, src_col = divmod(i, grid)
+        source = QRect(round(pad + src_col * (box + pad)), round(pad + src_row * (box + pad)), round(box), round(box))
+        x, y = round(left + TILE_GAP + col * (side + TILE_GAP)), round(top + TILE_GAP + row * (side + TILE_GAP))
+        painter.drawImage(QRect(x, y, round(side), round(side)), image, source)
+        _draw_label(painter, x, y, text, round(side))
     painter.end()
     return out
 

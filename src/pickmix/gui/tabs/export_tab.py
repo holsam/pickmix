@@ -5,8 +5,8 @@ pickmix: Export tab, averages of each kind and RELION export and box extraction 
 # Import external dependencies
 import numpy as np
 from collections.abc import Callable
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtGui import QColor, QShowEvent
 from PySide6.QtWidgets import (
     QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -60,7 +60,9 @@ class ExportTab(QWidget):
         self.kinds_table = QTableWidget(0, len(_KIND_COLUMNS))
         self.kinds_table.setHorizontalHeaderLabels(_KIND_COLUMNS)
         quiet_table(self.kinds_table)
-        self.kinds_table.setMaximumHeight(160)
+        self.kinds_table.setMinimumHeight(120)
+        # columns are as wide as their heading and contents need, plus an equal share of any spare width (see _fit_columns)
+        self.kinds_table.viewport().installEventFilter(self)
         # editable columns say so in their headers; read-only ones are greyed below
         pencil = icon('edit')
         for c in _EDITABLE:
@@ -100,16 +102,29 @@ class ExportTab(QWidget):
         buttons.addStretch()
         export = QGroupBox('Export and extract')
         box = QVBoxLayout(export)
-        box.addWidget(self.kinds_table)
+        box.addWidget(self.kinds_table, 1)
         box.addLayout(buttons)
         layout = QVBoxLayout(self)
         tidy(layout)
-        layout.addWidget(self.average)
-        layout.addWidget(export)
+        # both groups take spare height; inside Export only the table grows, the formats and buttons keep their size
+        layout.addWidget(self.average, 3)
+        layout.addWidget(export, 2)
         self.export_button.clicked.connect(self._export)
         self.extract_button.clicked.connect(lambda: self._run(self.extract_all, 'Extracting boxes...'))
         self.star_box.toggled.connect(self._sync_buttons)
         self.csv_box.toggled.connect(self._sync_buttons)
+
+    # showEvent: headings are only measured right once the table is styled, so the columns are fitted as the tab appears
+    def showEvent(self, event: QShowEvent) -> None:
+        self.kinds_table.ensurePolished()
+        self._fit_columns()
+        super().showEvent(event)
+
+    # eventFilter: fit the columns again when the table is resized
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self.kinds_table.viewport() and event.type() == QEvent.Type.Resize:
+            self._fit_columns()
+        return super().eventFilter(watched, event)
 
     # set_session: show a session and follow its picks and estimates
     def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
@@ -153,6 +168,7 @@ class ExportTab(QWidget):
         self.average.refresh_kinds()
         self.refresh()
         self._sync_buttons()
+        self._fit_columns()
 
     # refresh: the per-kind numbers
     def refresh(self) -> None:
@@ -215,6 +231,14 @@ class ExportTab(QWidget):
                 continue
             lines.append(f'{name}: wrote {s.written} boxes of {s.box_px} px at {s.pixel_size:.2f} A/px, in {str(s.folder)!r}')
         return lines
+
+    # _fit_columns: every column as wide as its heading and contents need, with any spare width shared equally so the table fills its width
+    def _fit_columns(self) -> None:
+        table, header = self.kinds_table, self.kinds_table.horizontalHeader()
+        needs = [max(header.sectionSizeHint(c), table.sizeHintForColumn(c)) for c in range(header.count())]
+        spare = max(0, (table.viewport().width() - sum(needs)) // max(len(needs), 1))
+        for c, need in enumerate(needs):
+            header.resizeSection(c, need + spare)
 
     # _schedule: coalesce bursts of changes, from any thread, into one refresh
     def _schedule(self) -> None:

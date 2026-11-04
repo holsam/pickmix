@@ -147,6 +147,8 @@ class TestAveragePane:
         assert sorted(p.name for p in folder.glob('*.png')) == ['overall_mean.png', 'overall_montage.png', 'overall_montage_labelled.png'] and len(paths) == 3
         plain, labelled = QImage(str(folder / 'overall_montage.png')), QImage(str(folder / 'overall_montage_labelled.png'))
         assert not plain.isNull() and plain.size() == labelled.size() and plain != labelled
+        # saved as the square montage, whatever shape the pane shows it in
+        assert plain.width() == plain.height()
         widget.per_tomogram_box.setChecked(True)
         widget.save()
         assert any(p.name.endswith('_mean.png') and p.name != 'overall_mean.png' for p in folder.glob('*.png'))

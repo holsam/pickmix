@@ -88,6 +88,28 @@ class TestExportTab:
         for box in (tab.star_box, tab.csv_box):
             assert box.mapTo(tab, QPoint()).y() < export.mapTo(tab, QPoint()).y()
 
+    # test_table_takes_spare_height: a taller window gives the table the room, while the buttons keep their size
+    def test_table_takes_spare_height(self, qtbot: QtBot, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        tab.show()
+        tab.resize(1300, 900)
+        qtbot.waitExposed(tab)
+        short = tab.kinds_table.height()
+        tab.resize(1300, 1100)
+        qtbot.waitUntil(lambda: tab.kinds_table.height() > short, timeout=2000)
+        assert tab.export_button.size() == tab.extract_button.size() == QSize(*MEDIUM_SIZE)
+
+    # test_headings_fully_shown: every column is at least as wide as its heading and together they fill the table's width
+    def test_headings_fully_shown(self, qtbot: QtBot, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        tab.resize(1400, 900)
+        tab.show()
+        qtbot.waitExposed(tab)
+        header = tab.kinds_table.horizontalHeader()
+        widths = [header.sectionSize(c) for c in range(header.count())]
+        assert all(w >= header.sectionSizeHint(c) for c, w in enumerate(widths))
+        assert 0 <= tab.kinds_table.viewport().width() - sum(widths) <= len(widths)
+
     # test_quiet_table: the kinds table has the shared quiet look
     def test_quiet_table(self, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
         tab, _, _ = setup()
