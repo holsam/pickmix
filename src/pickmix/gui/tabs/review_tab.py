@@ -6,7 +6,7 @@ pickmix: Review tab, every pick with filters and a preview of the selected pick
 import numpy as np
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
+    QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -17,6 +17,7 @@ from pickmix.export import Item
 from pickmix.geometry import Parent
 from pickmix.gui.components.icons import icon
 from pickmix.gui.components.images import to_pixmap
+from pickmix.gui.components.status import fit_status, status_item
 from pickmix.gui.style import image_well, tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
@@ -78,6 +79,11 @@ class ReviewTab(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        # tomogram and kind take what they need, the other columns share the rest
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.xy_label = QLabel('xy')
         self.xz_label = QLabel('xz')
         for label in (self.xy_label, self.xz_label):
@@ -155,12 +161,13 @@ class ReviewTab(QWidget):
         self.table.setRowCount(len(rows))
         for r, (pick, fit) in enumerate(rows):
             state = self.service.store.state(pick)
-            cells = [
-                pick.tomogram, pick.kind, f'{pick.x:.1f}', f'{pick.y:.1f}', f'{pick.z:.1f}',
-                '' if fit is None else f'{fit.snr:.2f}', '' if fit is None else fit.flag, state,
-            ]
+            flag = '' if fit is None else fit.flag
+            cells = [pick.tomogram, pick.kind, f'{pick.x:.1f}', f'{pick.y:.1f}', f'{pick.z:.1f}', '' if fit is None else f'{fit.snr:.2f}', flag]
             for c, text in enumerate(cells):
                 self.table.setItem(r, c, QTableWidgetItem(text))
+            status = fit_status(state, flag)
+            tip = {'running': f'Estimate {state}', 'ok': 'Estimate is fine'}.get(status, flag)
+            self.table.setItem(r, 7, status_item(status, tip))
         if selected in [p.id for p in self._shown]:
             self.table.selectRow([p.id for p in self._shown].index(selected))
         self.table.blockSignals(False)

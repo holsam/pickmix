@@ -7,6 +7,7 @@ import numpy as np
 from collections.abc import Callable, Iterator
 from pathlib import Path
 import pytest
+from PySide6.QtWidgets import QHeaderView
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
@@ -116,6 +117,20 @@ class TestReviewTab:
         assert tab.flag_filter.itemText(0) == '(all)' and tab.reestimate_button.text() == 'Re-estimate all'
         assert not tab.reestimate_button.icon().isNull()
         assert not hasattr(tab, 'delete_button') and not hasattr(tab, 'flagged_box')
+
+    # test_status_icons_and_columns: the estimate column is an icon, and only tomogram and kind size to their contents
+    def test_status_icons_and_columns(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, service = setup()
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        session.store.add(NAME, 'bad', 1.0, 1.0, 1.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
+        tab.refresh()
+        rows = {tab.table.item(r, 1).text(): tab.table.item(r, 7) for r in range(tab.table.rowCount())}
+        assert rows['yellow'].text() == '' and not rows['yellow'].icon().isNull() and rows['yellow'].toolTip() == 'Estimate is fine'
+        assert not rows['bad'].icon().isNull() and 'error' in rows['bad'].toolTip()
+        header = tab.table.horizontalHeader()
+        modes = [header.sectionResizeMode(c) for c in range(8)]
+        assert modes[:2] == [QHeaderView.ResizeMode.ResizeToContents] * 2 and set(modes[2:]) == {QHeaderView.ResizeMode.Stretch}
 
     # test_crops: preview crops are cut around the pick
     def test_crops(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
