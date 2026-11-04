@@ -4,7 +4,7 @@ pickmix: shared GUI text levels and spacing
 
 # Import external dependencies
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.components.icons import icon
@@ -12,6 +12,9 @@ from pickmix.gui.components.icons import icon
 # MARGIN, SPACING: outer margin and gap between widgets, pixels
 MARGIN: int = 8
 SPACING: int = 6
+
+# RADIUS: corner radius of rounded buttons, pixels
+RADIUS: int = 16
 
 # TITLE_STEP, HEADING_STEP, HINT_STEP: point-size offsets from the application font for each text level
 TITLE_STEP: float = 4.0
@@ -90,6 +93,14 @@ def bold_safe(button: QPushButton) -> None:
     button.ensurePolished()
     button.setMinimumWidth(button.sizeHint().width())
     button.setStyleSheet(plain + 'QPushButton:checked { font-weight: bold; }')
+
+# rounded: give a button rounded corners in the theme colours; a stylesheet is needed for any radius
+def rounded(button: QPushButton) -> None:
+    button.setStyleSheet(
+        f'QPushButton {{ background: palette(button); border: 1px solid palette(mid); border-radius: {RADIUS}px; }}'
+        'QPushButton:hover { background: palette(midlight); }'
+        'QPushButton:pressed { background: palette(mid); }'
+    )
 
 # _styled: a label in the application font shifted by step points
 def _styled(text: str, step: float, *, bold: bool) -> QLabel:

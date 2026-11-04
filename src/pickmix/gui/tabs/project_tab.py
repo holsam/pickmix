@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from pickmix.config import RingParams
 from pickmix.gui.components.collapsible import Collapsible
 from pickmix.gui.dialogs.new_project_dialog import NewProjectDialog
+from pickmix.gui.panes.welcome_pane import WelcomePane
 from pickmix.gui.style import form_label, heading, tidy
 from pickmix.gui.workers import run_in_background
 from pickmix.project import Project, create_project, open_project
@@ -73,8 +74,9 @@ class ProjectTab(QWidget):
         super().__init__()
         self.project: Project | None = None
         self.path_label = QLabel()
-        self.open_button = QPushButton('Open project...')
-        self.new_button = QPushButton('New project...')
+        self.welcome = WelcomePane()
+        self.open_button = self.welcome.open_button
+        self.new_button = self.welcome.new_button
         self.reload_button = QPushButton('Reload config')
         self.close_button = QPushButton('Close project')
         self.status = QLabel()
@@ -103,14 +105,6 @@ class ProjectTab(QWidget):
         form.addWidget(estimators)
         form.addWidget(self.save_button)
         form.addStretch()
-        start = QWidget()
-        start_layout = QVBoxLayout(start)
-        start_layout.addStretch()
-        start_layout.addWidget(heading('No project open'), alignment=Qt.AlignmentFlag.AlignHCenter)
-        for button in (self.new_button, self.open_button):
-            button.setMinimumWidth(220)
-            start_layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignHCenter)
-        start_layout.addStretch()
         # page 1: the open project
         top = QHBoxLayout()
         top.addWidget(self.path_label, 1)
@@ -128,7 +122,7 @@ class ProjectTab(QWidget):
         opened_layout.addLayout(top)
         opened_layout.addLayout(body)
         self.stack = QStackedWidget()
-        self.stack.addWidget(start)
+        self.stack.addWidget(self.welcome)
         self.stack.addWidget(opened)
         layout = QVBoxLayout(self)
         tidy(layout)
