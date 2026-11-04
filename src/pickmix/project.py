@@ -27,6 +27,11 @@ class Project:
         save_config(config, self.path)
         self.config = config
 
+    # display_name: the configured name, else the name of the directory holding config.toml
+    @property
+    def display_name(self) -> str:
+        return self.config.name or self.path.parent.name
+
 # open_project: load a config.toml and discover its tomograms
 def open_project(path: Path) -> Project:
     config = load_config(path)
@@ -38,7 +43,7 @@ def open_project(path: Path) -> Project:
 # create_project: merge the runs into project_dir and write its config.toml; refuses to overwrite either
 def create_project(
     project_dir: Path, runs: Sequence[tuple[str, Path]], tomo_job: str, raw_dir: Path,
-    *, denoised_dir: Path | None = None, denoised_suffix: str = '',
+    *, name: str | None = None, denoised_dir: Path | None = None, denoised_suffix: str = '',
 ) -> tuple[Path, MergeResult]:
     config_path = project_dir / 'config.toml'
     for path in (config_path, project_dir / 'tomograms.star'):
@@ -46,6 +51,7 @@ def create_project(
             raise FileExistsError(f'{str(path)!r} already exists')
     result = merge_tomograms(runs, tomo_job, project_dir)
     config = Config(
+        name=name,
         raw_dir=raw_dir.resolve(),
         denoised_dir=denoised_dir.resolve() if denoised_dir else None,
         denoised_suffix=denoised_suffix,

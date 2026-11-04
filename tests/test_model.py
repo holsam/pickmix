@@ -128,3 +128,12 @@ class TestModel:
         store.add('Position_1_2', 'other', 3.0, 1.0, 1.0)
         assert store.remove_kind('cage') == 1 and store.remove_kind('cage') == 0
         assert [p.kind for p in PickStore(store.project).all()] == ['other']
+
+    # test_find: a number or name finds a tomogram's index without moving to it
+    def test_find(self, make_config) -> None:
+        from pickmix.model import Session
+        from pickmix.project import open_project
+        session = Session(open_project(make_config(names=('Position_1_2', 'Position_1_3', 'Other_9'))))
+        assert session.find('2') == 1 and session.find('other') == 2 and session.find('Position_1_3') == 1
+        assert session.find('position') == 0 and session.find('zzz') is None and session.find('') is None and session.find('9') is None
+        assert session.index == 0 and session.jump('3') and session.index == 2

@@ -13,7 +13,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimates import EstimateService
-from pickmix.gui.pick_tab import PickTab
+from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import open_project
@@ -54,6 +54,11 @@ class TestPickTab:
         assert tab.z == 2 and tab.canvas.image_size() == (8, 6)
         assert tab.z_label.text() == '3 / 4'
 
+    # test_quiet_table: the pick table has the shared quiet look
+    def test_quiet_table(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.table.verticalHeader().isHidden() and not tab.table.showGrid()
+
     # test_add_pick: a click adds a pick of the active kind on the current slice
     def test_add_pick(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()
@@ -61,16 +66,16 @@ class TestPickTab:
         [pick] = session.store.all()
         assert (pick.kind, pick.x, pick.y, pick.z) == ('cage', 3.0, 2.0, 2.0)
         assert tab.canvas.marker_ids() == [pick.id] and tab.canvas.selected_id == pick.id
-        assert tab.table.rowCount() == 1 and tab.table.item(0, 0).text() == 'cage'
+        assert tab.table.rowCount() == 1 and tab.table.item(0, 1).text() == 'cage'
 
     # test_kind_switch: number keys choose the kind that new picks get
     def test_kind_switch(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()
-        tab._pick_kind(1)
+        tab.pick_kind(1)
         assert tab.active == 'yellow' and tab.kind_buttons['yellow'].isChecked()
         tab.canvas.add_requested.emit(1.0, 1.0)
         assert session.store.all()[0].kind == 'yellow'
-        tab._pick_kind(8)
+        tab.pick_kind(8)
         assert tab.active == 'yellow'
 
     # test_move_and_delete: moving keeps z, deleting removes the marker
@@ -97,6 +102,15 @@ class TestPickTab:
         assert tab.z == 3
         tab.canvas.z_scrolled.emit(-9)
         assert tab.z == 0
+
+    # test_delete_needs_selection: Delete is greyed until a pick is selected and again once it is gone
+    def test_delete_needs_selection(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert not tab.delete_button.isEnabled()
+        tab.canvas.add_requested.emit(3.0, 2.0)
+        assert tab.delete_button.isEnabled()
+        tab.delete_selected()
+        assert not tab.delete_button.isEnabled()
 
     # test_hide_kind: a hidden kind's markers go but its picks stay in the list
     def test_hide_kind(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
@@ -129,8 +143,8 @@ class TestPickTab:
         tab, session = setup()
         pick = session.store.add('Position_1_2', 'yellow', 3.0, 2.0, 2.0)
         qtbot.waitUntil(lambda: tab.canvas.overlay_visible(pick.id)[1], timeout=5000)
-        qtbot.waitUntil(lambda: tab.table.item(0, 4) is not None and tab.table.item(0, 4).text() == '0.00', timeout=5000)
-        assert tab.table.item(0, 5).text() == ''
+        qtbot.waitUntil(lambda: tab.table.item(0, 5) is not None and tab.table.item(0, 5).text() == '0.00', timeout=5000)
+        assert tab.table.item(0, 6).text() == ''
 
     # test_show_pick: a pick in another tomogram opens that tomogram and selects the pick
     def test_show_pick(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
@@ -148,19 +162,19 @@ class TestPickTab:
         near = session.store.add('Position_1_2', 'green', 3.0 + 56.0, 2.0, 2.0)
         session.store.add('Position_1_2', 'green', 3.0 + 20.0, 2.0, 2.0)
         qtbot.waitUntil(lambda: tab.canvas.normal_visible(near.id), timeout=5000)
-        qtbot.waitUntil(lambda: 'noparent' in {tab.table.item(r, 5).text() for r in range(tab.table.rowCount())}, timeout=5000)
-        assert [tab.table.item(r, 5).text() for r in range(3)] == ['', '', 'noparent']
+        qtbot.waitUntil(lambda: 'noparent' in {tab.table.item(r, 6).text() for r in range(tab.table.rowCount())}, timeout=5000)
+        assert [tab.table.item(r, 6).text() for r in range(3)] == ['', '', 'noparent']
 
     # test_hotkeys_follow_config: keys choose the kind the config puts on them, and buttons show their number
     def test_hotkeys_follow_config(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()
         session.project.update(hotkeys=['', 'green', 'cage'])
         tab.refresh_kinds()
-        tab._pick_kind(0)
+        tab.pick_kind(0)
         assert tab.active == 'cage'
-        tab._pick_kind(1)
+        tab.pick_kind(1)
         assert tab.active == 'green'
-        tab._pick_kind(2)
+        tab.pick_kind(2)
         assert tab.active == 'cage'
         assert tab.kind_buttons['green'].text() == '(2) green' and tab.kind_buttons['yellow'].text() == 'yellow'
 
@@ -172,7 +186,7 @@ class TestPickTab:
         assert tab.active is None and tab.kind_buttons == {}
         tab.canvas.add_requested.emit(1.0, 1.0)
         assert session.store.all() == []
-        tab._pick_kind(0)
+        tab.pick_kind(0)
         assert tab.active is None
 
     # test_title_is_name_only: the title is the tomogram name, with the navigation help kept below
@@ -189,15 +203,94 @@ class TestPickTab:
         assert tab.kind_buttons['yellow'].minimumWidth() > 0
         tab.kind_toggles['yellow'].click()
         assert 'yellow' in tab.hidden and not tab.kind_toggles['yellow'].isChecked()
-        tab._pick_kind(1)
+        tab.pick_kind(1)
         assert tab.active == 'yellow'
+
+    # test_auto_and_manual: Auto starts ticked, a manual change unticks it and ticking it restores the tomogram's limits
+    def test_auto_and_manual(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.auto_box.isChecked() and tab.invert_box.isChecked() is False
+        auto = tab.contrast.values()
+        tab.contrast.set_values(auto[0] + 10, auto[1] - 10, emit=True)
+        assert not tab.auto_box.isChecked() and tab.contrast.values() != auto
+        tab.auto_box.setChecked(True)
+        assert tab.contrast.values() == auto and tab.brightness.value() == 0
+
+    # test_brightness_shifts_window: positive brightness lowers the window by that share of its width
+    def test_brightness_shifts_window(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        lo, hi = tab._window()
+        tab.brightness.setValue(10)
+        new_lo, new_hi = tab._window()
+        assert not tab.auto_box.isChecked()
+        assert abs((lo - new_lo) - 0.1 * (hi - lo)) < 1e-6 and abs((new_hi - new_lo) - (hi - lo)) < 1e-6
+
+    # test_manual_window_kept_across_tomograms: with Auto off, the next tomogram opens with the same pixel-value window
+    def test_manual_window_kept_across_tomograms(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup(THREE)
+        low, high = tab.contrast.values()
+        tab.contrast.set_values(low + 50, high - 50, emit=True)
+        raw = tab._raw_window()
+        session.step(1)
+        qtbot.waitUntil(lambda: tab.opened is not None and tab.opened.name == 'Position_1_3', timeout=5000)
+        new = tab._raw_window()
+        assert abs(new[0] - raw[0]) < 2 and abs(new[1] - raw[1]) < 2
 
     # test_layout: Z is a vertical scrollbar and image and overlay controls sit in the settings pane
     def test_layout(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, _ = setup()
-        assert tab.z_slider.orientation() == Qt.Orientation.Vertical
-        for widget in (tab.lo_slider, tab.hi_slider, tab.invert_box, tab.auto_button, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box):
+        assert tab.z_slider.orientation() == Qt.Orientation.Vertical and tab.settings.width() <= 220
+        for widget in (tab.contrast, tab.brightness, tab.auto_box, tab.invert_box, tab.fit_button, tab.fill_button, tab.rings_box, tab.boxes_box, tab.normals_box, *tab.kind_buttons.values()):
             assert tab.settings.isAncestorOf(widget)
         assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
         header = tab.table.horizontalHeader()
-        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.ResizeToContents and header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed and header.sectionResizeMode(1) == QHeaderView.ResizeMode.ResizeToContents
+
+    # test_tomo_pane_toggle: the tomogram pane sits in the tab and its button hides and shows it
+    def test_tomo_pane_toggle(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup(THREE)
+        assert tab.splitter.indexOf(tab.tomo) == 0 and not tab.tomo.isHidden()
+        assert tab.tomo.list.count() == 3
+        tab.tomo_toggle.click()
+        assert tab.tomo.isHidden()
+        tab.tomo_toggle.click()
+        assert not tab.tomo.isHidden()
+        assert not tab.tomo_toggle.icon().isNull()
+
+    # test_tomo_pane_navigates: choosing a tomogram in the pane changes the tomogram shown
+    def test_tomo_pane_navigates(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup(THREE)
+        tab.tomo._clicked(tab.tomo.list.item(2))
+        assert session.current == 'Other_9' and tab.title.text() == 'Other_9'
+
+    # test_status_badges: each row has a badge, spinning until the estimate arrives and ok after
+    def test_status_badges(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.store.add('Position_1_2', 'yellow', 3.0, 2.0, 2.0)
+        assert tab.table.horizontalHeaderItem(0).text() == '' and tab.table.cellWidget(0, 0) is not None
+        qtbot.waitUntil(lambda: tab.table.cellWidget(0, 0).status == 'ok', timeout=5000)
+        assert tab.status.text() == ''
+
+    # test_view_toggles: each overlay toggle starts shown, hides its overlay and shows a different eye when hidden
+    def test_view_toggles(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert all(b.isChecked() for b in (tab.rings_box, tab.boxes_box, tab.normals_box))
+        shown_icon = tab.rings_box.icon().cacheKey()
+        tab.rings_box.click()
+        assert not tab.rings_box.isChecked() and tab.rings_box.icon().cacheKey() != shown_icon
+        assert tab.rings_box.text() == 'Rings'
+
+    # test_delete_icon: delete is an icon button with a tooltip
+    def test_delete_icon(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert not tab.delete_button.icon().isNull() and tab.delete_button.toolTip()
+
+    # test_fit_and_fill_buttons: both buttons act on the canvas view
+    def test_fit_and_fill_buttons(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        tab.resize(900, 600)
+        tab.show()
+        tab.fit_button.click()
+        fit_scale = tab.canvas.transform().m11()
+        tab.fill_button.click()
+        assert tab.canvas.transform().m11() >= fit_scale

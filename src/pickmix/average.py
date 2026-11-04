@@ -18,6 +18,9 @@ from pickmix.utils.io import Tomogram, load_volume
 # _MONTAGE_MAX: most boxes shown in the montage, spread evenly over the picks
 _MONTAGE_MAX: int = 64
 
+# MONTAGE_PAD: pixels of padding around every cell of the montage
+MONTAGE_PAD: int = 2
+
 # AverageResult: normalised 2D images, ready to show; overall and per-tomogram means, and the montage
 @dataclass(frozen=True)
 class AverageResult:
@@ -28,8 +31,15 @@ class AverageResult:
     montage: np.ndarray
     per_tomogram: dict[str, np.ndarray]
     folder: Path
+    # montage geometry and label
+    grid: int
+    pad: int
+    labels: list[str]
+    # boxes averaged per tomogram
+    counts: dict[str, int]
 
-# average_kind: cut a box at every item, project the central slab of each along z, normalise it, and average per tomogram and overall; PNGs go to out_dir/average/<kind>/
+
+# average_kind: cut a box at every item, project the central slab of each along z, normalise it, and average per tomogram and overall; nothing is written until save_average
 def average_kind(
     name: str, kind: Kind, items: list[Item], tomos: dict[str, Tomogram], config: Config,
     *, log: Callable[[str], None] = lambda _: None,
@@ -42,6 +52,7 @@ def average_kind(
     half = min(max(round(kind.marker_a / 2 / px), 1), box // 2)
     centre = box // 2
     images: dict[str, list[np.ndarray]] = {}
+    origins: list[str] = []
     for tomogram in dict.fromkeys(p.tomogram for p, _ in items):
         vol = load_volume(tomos[tomogram], source=config.source)
         for p, f in items:
@@ -50,25 +61,39 @@ def average_kind(
             cube = crop_box(vol, (round(f.z), round(f.y), round(f.x)), box)
             img = cube[centre - half : centre + half + 1].mean(axis=0)
             images.setdefault(tomogram, []).append((img - img.mean()) / (img.std() or 1.0))
+            origins.append(f'{len(images[tomogram])} ({tomogram})')
         log(f'{name} {tomogram}: {len(images[tomogram])} boxes')
     everything = [img for imgs in images.values() for img in imgs]
     chosen = np.linspace(0, len(everything) - 1, min(len(everything), _MONTAGE_MAX)).astype(int)
     grid = math.ceil(math.sqrt(len(chosen)))
     result = AverageResult(
-        name, len(everything), box,
+        name, 
+        len(everything), 
+        box,
         np.mean(everything, axis=0),
-        montage(np.stack([everything[i] for i in chosen]), grid_shape=(grid, grid), padding_width=2),
+        montage(np.stack([everything[i] for i in chosen]), grid_shape=(grid, grid), padding_width=MONTAGE_PAD),
         {t: np.mean(imgs, axis=0) for t, imgs in images.items()},
         config.out_dir / 'average' / name,
+        grid, 
+        MONTAGE_PAD, 
+        [origins[i] for i in chosen],
+        {t: len(imgs) for t, imgs in images.items()},
     )
+    return result
+
+# save_average: clear the kind's old PNGs and write the overall mean and montage, and each tomogram's mean when asked; returns the paths written
+def save_average(result: AverageResult, *, per_tomogram: bool = False) -> list[Path]:
     result.folder.mkdir(parents=True, exist_ok=True)
     for stale in result.folder.glob('*.png'):
         stale.unlink()
-    _save(result.folder / 'overall_mean.png', result.overall)
-    _save(result.folder / 'overall_montage.png', result.montage)
-    for tomogram, img in result.per_tomogram.items():
-        _save(result.folder / f'{tomogram}_mean.png', img)
-    return result
+    written = [result.folder / 'overall_mean.png', result.folder / 'overall_montage.png']
+    _save(written[0], result.overall)
+    _save(written[1], result.montage)
+    if per_tomogram:
+        for tomogram, img in result.per_tomogram.items():
+            written.append(result.folder / f'{tomogram}_mean.png')
+            _save(written[-1], img)
+    return written
 
 # _save: write an image stretched between its 1st and 99th percentiles as an 8-bit PNG
 def _save(path: Path, arr: np.ndarray) -> None:

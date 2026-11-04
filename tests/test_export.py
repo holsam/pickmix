@@ -3,13 +3,13 @@ pickmix: tests for per-kind star file export
 '''
 
 # Import external dependencies
-import pytest
+import csv, pytest
 from pathlib import Path
 
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimate.registry import Fit
-from pickmix.export import Item, export_kind, recommend_box
+from pickmix.export import Item, export_csv, export_kind, recommend_box
 from pickmix.geometry import match_items
 from pickmix.model import Pick
 from pickmix.utils.io import Tomogram
@@ -94,3 +94,19 @@ class TestExport:
         kind = Kind(marker_a=40, box_a=200, parent='cage')
         with pytest.raises(ValueError, match='parent matching'):
             export_kind('green', kind, [_item(1, 4, 3, 2, 0.0)], {'T': TOMO}, tmp_path, parents={})
+
+    # test_csv: one row per kept pick with pick and fit centres, SNR and flags
+    def test_csv(self, tmp_path: Path) -> None:
+        s = export_csv('yellow', [_item(1, 4, 3, 2, 1.5), _item(2, 1, 1, 1, 2.0, flag='noparent')], tmp_path)
+        rows = list(csv.DictReader(open(tmp_path / 'csv' / 'yellow.csv')))
+        assert s.written == 2 and s.path == tmp_path / 'csv' / 'yellow.csv'
+        assert [r['snr'] for r in rows] == ['1.500', '2.000'] and rows[1]['flag'] == 'noparent'
+        assert rows[0]['pick_x'] == '4.00' and rows[0]['fit_z'] == '2.00' and rows[0]['tomogram'] == 'T'
+
+    # test_csv_filters: the SNR minimum and include_flagged drop rows, and a kind left empty is an error
+    def test_csv_filters(self, tmp_path: Path) -> None:
+        items = [_item(1, 4, 3, 2, 0.5), _item(2, 1, 1, 1, 2.0, flag='noparent'), _item(3, 2, 2, 2, 3.0)]
+        s = export_csv('yellow', items, tmp_path, min_snr=1.0, include_flagged=False)
+        assert (s.written, s.below_snr, s.excluded_flagged) == (1, 1, 1)
+        with pytest.raises(ValueError, match='no picks left'):
+            export_csv('yellow', items, tmp_path, min_snr=100.0)

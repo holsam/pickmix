@@ -6,18 +6,20 @@ pickmix: Pick tab
 import numpy as np
 from concurrent.futures import Future
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
-    QScrollBar, QSlider, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
+    QScrollBar, QSlider, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
 from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
-from pickmix.gui.canvas import FitView, Marker, SliceCanvas
+from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
+from pickmix.gui.components.range_slider import RangeSlider
+from pickmix.gui.components.status import StatusBadge, fit_status
+from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title
+from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -46,58 +48,73 @@ class PickTab(QWidget):
         self.title = title()
         self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram.')
         self.status = QLabel()
-        self.kind_row = QHBoxLayout()
+        self.tomo = TomoPane()
+        self.tomo.setMinimumWidth(200)
+        self.tomo_toggle = icon_button('left_panel_close', '<', 'Hide the tomogram list', size=20)
+        self.tomo_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tomo_toggle.clicked.connect(lambda: self.set_tomo_visible(self.tomo.isHidden()))
+        self.kind_box = QVBoxLayout()
         self.kind_buttons: dict[str, QPushButton] = {}
         self.kind_toggles: dict[str, QPushButton] = {}
         self.group = QButtonGroup(self)
         self.z_slider = QScrollBar(Qt.Orientation.Vertical)
         self.z_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.z_label = QLabel()
-        self.lo_slider = QSlider(Qt.Orientation.Horizontal)
-        self.hi_slider = QSlider(Qt.Orientation.Horizontal)
-        for slider in (self.lo_slider, self.hi_slider):
-            slider.setRange(0, _STEPS)
-        self.rings_box = QCheckBox('Rings')
-        self.boxes_box = QCheckBox('Boxes')
-        self.normals_box = QCheckBox('Normals')
+        self.contrast = RangeSlider(0, _STEPS)
+        self.brightness = QSlider(Qt.Orientation.Horizontal)
+        self.brightness.setRange(-100, 100)
+        self.auto_box = QCheckBox('Auto')
+        self.auto_box.setChecked(True)
+        self.rings_box = view_toggle('Rings')
+        self.boxes_box = view_toggle('Boxes')
+        self.normals_box = view_toggle('Normals')
         for box in (self.rings_box, self.boxes_box, self.normals_box):
             box.setChecked(True)
             box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.invert_box = QCheckBox('Invert')
-        self.auto_button = QPushButton('Auto')
         self.fit_button = QPushButton('Fit')
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(['Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.fill_button = QPushButton('Fill')
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(['', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
+        quiet_table(self.table)
         self.table.setMaximumHeight(170)
+        # status marker first and fixed so kinds always line up; Kind fits its names, the number columns share the rest
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.delete_button = QPushButton('Delete selected')
-        for button in (self.auto_button, self.fit_button, self.delete_button):
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setColumnWidth(0, 28)
+        self.delete_button = icon_button('delete', 'Delete', 'Delete the selected pick (Delete)')
+        self.delete_button.setEnabled(False)
+        for button in (self.fit_button, self.fill_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._row_ids: list[int] = []
-        # settings pane on the right: image controls, then overlays
+        # settings pane on the right: image controls, what to show, then the kinds
         image = QGroupBox('Image')
         image_form = QFormLayout(image)
-        image_form.addRow('Contrast low', self.lo_slider)
-        image_form.addRow('Contrast high', self.hi_slider)
-        image_form.addRow(self.invert_box)
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.auto_button)
-        buttons.addWidget(self.fit_button)
-        image_form.addRow(buttons)
-        overlay = QGroupBox('Overlay')
-        overlay_box = QVBoxLayout(overlay)
-        for box in (self.rings_box, self.boxes_box, self.normals_box):
-            overlay_box.addWidget(box)
+        image_form.addRow('Contrast', self.contrast)
+        image_form.addRow('Brightness', self.brightness)
+        checks = QHBoxLayout()
+        checks.addWidget(self.auto_box)
+        checks.addWidget(self.invert_box)
+        image_form.addRow(checks)
+        fit_row = QHBoxLayout()
+        fit_row.addWidget(self.fit_button)
+        fit_row.addWidget(self.fill_button)
+        image_form.addRow(fit_row)
+        view = QGroupBox('View')
+        view_grid = QGridLayout(view)
+        for i, box in enumerate((self.rings_box, self.boxes_box, self.normals_box)):
+            view_grid.addWidget(box, i // 2, i % 2)
+        kinds = QGroupBox('Kinds')
+        kinds.setLayout(self.kind_box)
         self.settings = QWidget()
-        self.settings.setFixedWidth(260)
+        self.settings.setFixedWidth(220)
         settings_layout = QVBoxLayout(self.settings)
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.addWidget(image)
-        settings_layout.addWidget(overlay)
+        settings_layout.addWidget(view)
+        settings_layout.addWidget(kinds)
         settings_layout.addStretch()
         # vertical Z scrollbar between the canvas and the settings
         z_column = QVBoxLayout()
@@ -116,36 +133,50 @@ class PickTab(QWidget):
         bottom = QVBoxLayout()
         bottom.addLayout(picks_head)
         bottom.addWidget(self.table)
+        # picking area: kinds, canvas and settings, picks table
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addLayout(middle, 1)
+        content_layout.addLayout(bottom)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.addWidget(self.tomo)
+        self.splitter.addWidget(content)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([260, 1000])
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        names.addWidget(self.title)
+        names.addWidget(self.help)
+        head = QHBoxLayout()
+        head.addWidget(self.tomo_toggle, alignment=Qt.AlignmentFlag.AlignTop)
+        head.addLayout(names, 1)
         layout = QVBoxLayout(self)
         tidy(layout)
-        layout.addWidget(self.title)
-        layout.addWidget(self.help)
-        layout.addSpacing(8)
-        layout.addLayout(self.kind_row)
-        layout.addLayout(middle, 1)
-        layout.addLayout(bottom)
+        layout.addLayout(head)
+        layout.addWidget(self.splitter, 1)
         layout.addWidget(self.status)
+        self.set_tomo_visible(True)
         self.z_slider.valueChanged.connect(self._show_z)
-        self.lo_slider.valueChanged.connect(self._on_window)
-        self.hi_slider.valueChanged.connect(self._on_window)
+        self.contrast.valueChanged.connect(self._edited)
+        self.brightness.valueChanged.connect(self._edited)
         self.invert_box.toggled.connect(self._on_window)
+        self.auto_box.toggled.connect(self._auto_toggled)
         self.rings_box.toggled.connect(self._on_overlay)
         self.boxes_box.toggled.connect(self._on_overlay)
         self.normals_box.toggled.connect(self._on_overlay)
-        self.auto_button.clicked.connect(self._auto)
         self.fit_button.clicked.connect(self.canvas.fit)
+        self.fit_button.setToolTip('Zoom to show entire tomogram')
+        self.fill_button.clicked.connect(self.canvas.fill)
+        self.fill_button.setToolTip('Zoom tomogram to fill')
         self.delete_button.clicked.connect(self.delete_selected)
         self.canvas.add_requested.connect(self._add)
         self.canvas.move_requested.connect(self._move)
         self.canvas.marker_clicked.connect(self._clicked)
         self.canvas.z_scrolled.connect(lambda steps: self.z_slider.setValue(self.z_slider.value() + steps))
         self.table.cellClicked.connect(self._row_clicked)
-        for i in range(1, 10):
-            QShortcut(QKeySequence(str(i)), self, context=Qt.ShortcutContext.WidgetWithChildrenShortcut).activated.connect(
-                lambda i=i: self._pick_kind(i - 1)
-            )
-        for key in ('Delete', 'Backspace'):
-            QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WidgetWithChildrenShortcut).activated.connect(self.delete_selected)
 
     # set_session: show a session and follow its picks and navigation
     def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
@@ -154,6 +185,7 @@ class PickTab(QWidget):
         # estimates arrive on the service's thread
         service.store.listeners.append(lambda: post(self._on_picks))
         session.goto_listeners.append(self._on_goto)
+        self.tomo.set_session(session)
         self.refresh_kinds()
         self._on_goto()
 
@@ -163,8 +195,8 @@ class PickTab(QWidget):
             return
         for button in self.kind_buttons.values():
             self.group.removeButton(button)
-        while self.kind_row.count():
-            widget = self.kind_row.takeAt(0).widget()
+        while self.kind_box.count():
+            widget = self.kind_box.takeAt(0).widget()
             if widget is not None:
                 widget.deleteLater()
         self.kind_buttons, self.kind_toggles = {}, {}
@@ -172,7 +204,6 @@ class PickTab(QWidget):
         self.hidden &= set(kinds)
         # key number of each kind that has a hotkey
         keys = {name: i + 1 for i, name in enumerate(self.session.project.config.hotkeys) if name}
-        self.kind_row.addWidget(hint('Hotkeys:'))
         for name, kind in kinds.items():
             # first button selects kind
             key = QPushButton(f'({keys[name]}) {name}' if name in keys else name)
@@ -204,14 +235,14 @@ class PickTab(QWidget):
             pair_row.setSpacing(0)
             pair_row.addWidget(key)
             pair_row.addWidget(toggle)
-            self.kind_row.addWidget(pair)
-        self.kind_row.addStretch()
+            self.kind_box.addWidget(pair)
         # no kinds leaves nothing to pick as
         if kinds:
             self._set_active(self.active if self.active in kinds else next(iter(kinds)))
         else:
             self.active = None
         self._on_picks()
+        self.tomo.refresh()
 
     # show_pick: go to a pick, in whichever tomogram it is, and select it
     def show_pick(self, pick_id: int) -> None:
@@ -224,6 +255,16 @@ class PickTab(QWidget):
         if pick.tomogram != self.session.current:
             self.session.go(self.session.names.index(pick.tomogram))
 
+    # set_tomo_visible: show or hide the tomogram pane; the icon is the action the button takes
+    def set_tomo_visible(self, shown: bool) -> None:
+        self.tomo.setVisible(shown)
+        panel = white('left_panel_close' if shown else 'left_panel_open', 20)
+        if panel is None:
+            self.tomo_toggle.setText('<' if shown else '>')
+        else:
+            self.tomo_toggle.setIcon(panel)
+        self.tomo_toggle.setToolTip('Hide the tomogram list' if shown else 'Show the tomogram list')
+
     # delete_selected: remove the selected pick
     def delete_selected(self) -> None:
         if self.session is not None and self.canvas.selected_id is not None:
@@ -234,8 +275,8 @@ class PickTab(QWidget):
         self.active = name
         self.kind_buttons[name].setChecked(True)
 
-    # _pick_kind: choose the kind on the i-th hotkey
-    def _pick_kind(self, i: int) -> None:
+    # pick_kind: choose the kind on the i-th hotkey
+    def pick_kind(self, i: int) -> None:
         name = self.session.project.config.hotkeys[i] if self.session is not None else ''
         if name in self.kind_buttons:
             self._set_active(name)
@@ -272,12 +313,16 @@ class PickTab(QWidget):
             return
         if self._timer:
             self._timer.lap('opened and contrast')
+        # Auto takes the tomogram's own limits; with Auto off the window you set is kept in pixel values
+        keep = None if self.auto_box.isChecked() else self._raw_window()
         lo, hi = self.opened.limits
         span = (hi - lo) or 1.0
         self._range = (lo - 2 * span, hi + 2 * span)
         depth = self.opened.vol.shape[0]
-        self._quiet(self.lo_slider, self._slider_pos(lo))
-        self._quiet(self.hi_slider, self._slider_pos(hi))
+        low, high = self.opened.limits if keep is None else keep
+        self.contrast.set_values(self._slider_pos(low), self._slider_pos(high))
+        if keep is None:
+            self._quiet(self.brightness, 0)
         self.z_slider.blockSignals(True)
         self.z_slider.setRange(0, depth - 1)
         self.z_slider.setValue(depth // 2)
@@ -334,25 +379,45 @@ class PickTab(QWidget):
                 self._timer.lap('first slice shown')
         self.loader.warm_around(self.opened.name, self.z)
 
-    # _window: contrast limits from the sliders
+    # _raw_window: contrast limits from the range slider, before brightness
+    def _raw_window(self) -> tuple[float, float]:
+        low, high = self.contrast.values()
+        return self._slider_value(low), self._slider_value(high)
+
+    # _window: the window the canvas uses: the contrast limits moved down by the brightness, a percentage of their width
     def _window(self) -> tuple[float, float]:
-        lo, hi = (self._slider_value(s.value()) for s in (self.lo_slider, self.hi_slider))
+        lo, hi = self._raw_window()
+        shift = self.brightness.value() / 100 * (hi - lo)
+        lo, hi = lo - shift, hi - shift
         return (lo, hi) if hi > lo else (lo, lo + 1e-6)
 
     # _on_overlay: fit rings or boxes switched
     def _on_overlay(self) -> None:
         self.canvas.set_overlay(rings=self.rings_box.isChecked(), boxes=self.boxes_box.isChecked(), normals=self.normals_box.isChecked())
 
-    # _on_window: contrast or invert changed
-    def _on_window(self) -> None:
+    # _on_window: contrast, brightness or invert changed
+    def _on_window(self, *_args: object) -> None:
         lo, hi = self._window()
         self.canvas.set_window(lo, hi, invert=self.invert_box.isChecked())
 
-    # _auto: contrast back to the limits found when the tomogram opened
+    # _edited: contrast or brightness changed by hand, so Auto goes off
+    def _edited(self, *_args: object) -> None:
+        if self.auto_box.isChecked():
+            self.auto_box.blockSignals(True)
+            self.auto_box.setChecked(False)
+            self.auto_box.blockSignals(False)
+        self._on_window()
+
+    # _auto_toggled: ticking Auto goes back to the limits found when the tomogram opened
+    def _auto_toggled(self, on: bool) -> None:
+        if on:
+            self._auto()
+
+    # _auto: contrast back to the limits found when the tomogram opened, brightness back to zero
     def _auto(self) -> None:
         if self.opened is not None:
-            self._quiet(self.lo_slider, self._slider_pos(self.opened.limits[0]))
-            self._quiet(self.hi_slider, self._slider_pos(self.opened.limits[1]))
+            self.contrast.set_values(self._slider_pos(self.opened.limits[0]), self._slider_pos(self.opened.limits[1]))
+            self._quiet(self.brightness, 0)
             self._on_window()
 
     # _slider_pos: slider position for a pixel value
@@ -378,7 +443,8 @@ class PickTab(QWidget):
         self._fill_table()
         if self.opened is not None:
             self.canvas.set_markers(self._markers())
-            self.status.setText(f'Estimating {self.service.pending}...' if self.service and self.service.pending else '')
+        # the canvas drops a selection whose pick is gone
+        self._sync_delete()
 
     # _match: parent geometry for the picks of the current tomogram, per kind that has a parent
     def _match(self) -> dict[str, dict[int, Parent]]:
@@ -412,7 +478,7 @@ class PickTab(QWidget):
                 out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag) or unmatched, view, normal))
         return out
 
-    # _fill_table: the current tomogram's picks of known kinds, with the selected one highlighted
+    # _fill_table: the current tomogram's picks of known kinds, each with its estimate status, and the selected one highlighted
     def _fill_table(self) -> None:
         assert self.session is not None
         name = self.session.current
@@ -426,7 +492,10 @@ class PickTab(QWidget):
             snr, flag = ('', '') if fit is None else (f'{fit.snr:.2f}', fit.flag)
             if fit is not None and kinds[p.kind].parent is not None and p.id not in self._matched.get(p.kind, {}):
                 flag = ','.join(filter(None, [flag, 'noparent']))
-            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag)):
+            status = fit_status(self.service.store.state(p) if self.service else 'ok', flag)
+            tip = {'running': 'Estimating...', 'ok': 'Estimate is fine'}.get(status, flag)
+            self.table.setCellWidget(r, 0, StatusBadge(status, tip))
+            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag), start=1):
                 self.table.setItem(r, c, QTableWidgetItem(text))
         self._select(self.canvas.selected_id)
 
@@ -437,6 +506,11 @@ class PickTab(QWidget):
             self.table.selectRow(self._row_ids.index(pick_id))
         else:
             self.table.clearSelection()
+        self._sync_delete()
+
+    # _sync_delete: Delete is only live while a pick is selected
+    def _sync_delete(self) -> None:
+        self.delete_button.setEnabled(self.canvas.selected_id is not None)
 
     # _add: new pick of the active kind on the current slice
     def _add(self, x: float, y: float) -> None:

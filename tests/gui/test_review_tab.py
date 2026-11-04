@@ -7,16 +7,16 @@ import numpy as np
 from collections.abc import Callable, Iterator
 from pathlib import Path
 import pytest
+from PySide6.QtWidgets import QHeaderView
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimates import EstimateService
-from pickmix.gui.review_tab import ReviewTab
+from pickmix.gui.tabs.review_tab import ReviewTab
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import open_project
-from pickmix.utils.star import read_star_loop
 
 # NAME: the single tomogram of the fixture project
 NAME: str = 'Position_1_2'
@@ -61,6 +61,11 @@ def parent_setup(qtbot: QtBot, make_config: Callable[..., Path]) -> Iterator[tup
 
 # TestReviewTab: Review tab
 class TestReviewTab:
+    # test_quiet_table: the pick table has the shared quiet look
+    def test_quiet_table(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.table.verticalHeader().isHidden() and not tab.table.showGrid()
+
     # test_table_and_filters: rows follow the filters
     def test_table_and_filters(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()
@@ -72,49 +77,82 @@ class TestReviewTab:
         tab.kind_filter.setCurrentText('bad')
         assert tab.table.rowCount() == 1 and tab.table.item(0, 6).text() == 'error'
         tab.kind_filter.setCurrentText('(all)')
-        tab.flagged_box.setChecked(True)
+        tab.flag_filter.setCurrentText('Flagged only')
         assert [tab.table.item(r, 1).text() for r in range(tab.table.rowCount())] == ['bad']
 
-    # test_delete_flagged: only flagged picks shown are removed
-    def test_delete_flagged(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+    # test_delete_shown: only the picks the filters show are removed, here the flagged ones
+    def test_delete_shown(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()
         good = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
         session.store.add(NAME, 'bad', 1.0, 1.0, 1.0)
         qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
-        tab.refresh()
-        assert tab.delete_flagged() == 1
+        tab.flag_filter.setCurrentText('Flagged only')
+        assert tab.delete_shown() == 1
         assert [p.id for p in session.store.all()] == [good.id]
 
-    # test_kind_numbers: per-kind counts and box in the export table
-    def test_kind_numbers(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+    # test_delete_selected: the selected pick goes, others stay, and nothing selected deletes nothing
+    def test_delete_selected(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()
-        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
-        qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        second = session.store.add(NAME, 'yellow', 5.0, 3.0, 2.0)
         tab.refresh()
-        assert [tab.kinds_table.item(0, c).text() for c in range(6)] == ['yellow', '1', '1', '0', '21', '4']
+        tab.table.clearSelection()
+        tab.table.setCurrentCell(-1, -1)
+        assert tab.delete_selected() == 0
+        tab.table.selectRow(0)
+        assert tab.delete_selected() == 1
+        assert [p.id for p in session.store.all()] == [second.id]
 
-    # test_export_and_extract: both write their files and report skipped picks
-    def test_export_and_extract(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+    # test_flag_filter_modes: all, flagged only and non-flagged only partition the picks
+    def test_flag_filter_modes(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()
-        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
-        qtbot.waitUntil(lambda: service.store.state(pick) == 'ok', timeout=5000)
-        out = session.project.config.out_dir
-        lines = tab.export_all()
-        assert any(l.startswith('yellow: wrote 1 particles') for l in lines) and 'bad: nothing to export' in lines
-        assert read_star_loop(out / 'relion' / 'yellow' / 'particles.star')[0]['rlnCenteredCoordinateXAngst'] == '0.00'
-        lines = tab.extract_all()
-        assert any(l.startswith('yellow: wrote 1 boxes of 4 px') for l in lines)
-        assert (out / 'particles' / 'yellow' / NAME / f'{NAME}_000.mrc').exists()
-        service.shutdown()
-        session.store.add(NAME, 'yellow', 1.0, 1.0, 1.0)
-        assert any('no current estimate' in l for l in tab.export_all())
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        session.store.add(NAME, 'bad', 1.0, 1.0, 1.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
+        tab.refresh()
+        counts = []
+        for choice in ('(all)', 'Flagged only', 'Non-flagged only'):
+            tab.flag_filter.setCurrentText(choice)
+            counts.append(tab.table.rowCount())
+        assert counts == [2, 1, 1]
+
+    # test_controls_layout: filters, buttons and the count are three separate columns of one row
+    def test_controls_layout(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.flag_filter.itemText(0) == '(all)' and tab.reestimate_button.text() == 'Re-estimate all'
+        assert not tab.reestimate_button.icon().isNull()
+        assert not hasattr(tab, 'delete_button') and not hasattr(tab, 'flagged_box')
+
+    # test_status_icons_and_columns: the estimate column is an icon, and only tomogram and kind size to their contents
+    def test_status_icons_and_columns(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, service = setup()
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        session.store.add(NAME, 'bad', 1.0, 1.0, 1.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
+        tab.refresh()
+        rows = {tab.table.item(r, 1).text(): tab.table.item(r, 7) for r in range(tab.table.rowCount())}
+        assert rows['yellow'].text() == '' and not rows['yellow'].icon().isNull() and rows['yellow'].toolTip() == 'Estimate is fine'
+        assert not rows['bad'].icon().isNull() and 'error' in rows['bad'].toolTip()
+        header = tab.table.horizontalHeader()
+        modes = [header.sectionResizeMode(c) for c in range(8)]
+        assert modes[:2] == [QHeaderView.ResizeMode.ResizeToContents] * 2 and set(modes[2:]) == {QHeaderView.ResizeMode.Stretch}
+
+    # test_preview_labels: the headings are gone and each image is labelled in its corner instead
+    def test_preview_labels(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        assert not hasattr(tab, 'xy_heading') and not hasattr(tab, 'xz_heading')
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        tab.refresh()
+        tab.table.selectRow(0)
+        qtbot.waitUntil(lambda: all(not label.pixmap().isNull() for label in (tab.xy_label, tab.xz_label, tab.yz_label)), timeout=5000)
+        assert tab.yz_label.toolTip() and not tab.reestimate_button.icon().isNull()
 
     # test_crops: preview crops are cut around the pick
     def test_crops(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, _, _ = setup()
-        xy, xz = tab.crops(NAME, (4.0, 3.0, 2.0))
+        xy, xz, yz = tab.crops(NAME, (4.0, 3.0, 2.0))
         vol = np.arange(4 * 6 * 8, dtype=np.float32).reshape(4, 6, 8)
-        assert np.array_equal(xy, vol[2]) and np.array_equal(xz, vol[:, 3, :])
+        assert np.array_equal(xy, vol[2]) and np.array_equal(xz, vol[:, 3, :]) and np.array_equal(yz, vol[:, :, 4])
 
     # test_double_click_opens: double-clicking a row asks to open the pick
     def test_double_click_opens(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
@@ -125,8 +163,8 @@ class TestReviewTab:
             tab._double_clicked(0, 0)
         assert blocker.args == [NAME, pick.id]
 
-    # test_unmatched_flagged_and_skipped: a pick off its parent's surface is flagged noparent, reported, and left out of the star file
-    def test_unmatched_flagged_and_skipped(self, qtbot: QtBot, parent_setup: tuple[ReviewTab, Session, EstimateService]) -> None:
+    # test_unmatched_flagged: a pick off its parent's surface is flagged noparent and can be deleted
+    def test_unmatched_flagged(self, qtbot: QtBot, parent_setup: tuple[ReviewTab, Session, EstimateService]) -> None:
         tab, session, service = parent_setup
         session.store.add(NAME, 'cage', 10.0, 10.0, 10.0)
         session.store.add(NAME, 'green', 10.0 + 56.0, 10.0, 10.0)
@@ -135,8 +173,3 @@ class TestReviewTab:
         tab.refresh()
         flags = {(tab.table.item(r, 1).text(), tab.table.item(r, 6).text()) for r in range(tab.table.rowCount())}
         assert ('green', 'noparent') in flags
-        lines = tab.export_all()
-        assert any('green: 1 picks have no cage within 100 A' in l for l in lines)
-        [row] = read_star_loop(session.project.config.out_dir / 'relion' / 'green' / 'particles.star')
-        assert (row['rlnTomoSubtomogramTilt'], row['rlnAngleTiltPrior']) == ('90.0000', '0.0000')
-        assert tab.delete_flagged() == 1

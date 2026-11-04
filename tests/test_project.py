@@ -45,3 +45,18 @@ class TestProject:
         project.update(source='raw')
         assert project.config.source == 'raw'
         assert load_config(path).source == 'raw'
+
+    # test_display_name: the configured name wins, else the config directory's name
+    def test_display_name(self, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        project = open_project(path)
+        assert project.display_name == path.parent.name
+        project.update(name='Cages')
+        assert project.display_name == 'Cages' and load_config(path).name == 'Cages'
+
+    # test_create_with_name: a name given at creation is saved
+    def test_create_with_name(self, tmp_path: Path, relion_project: Callable[[Path, list[str]], None]) -> None:
+        relion_project(tmp_path / 'p', ['A'])
+        (tmp_path / 'raw').mkdir()
+        path, _ = create_project(tmp_path / 'proj', [('r1', tmp_path / 'p')], 'Tomograms/job006', tmp_path / 'raw', name='Cages')
+        assert load_config(path).name == 'Cages'

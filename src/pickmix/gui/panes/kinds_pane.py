@@ -1,5 +1,5 @@
 '''
-pickmix: Kinds tab, listing the kinds, choosing hotkeys and editing both in config.toml
+pickmix: kinds pane, listing the kinds, choosing hotkeys and editing both in config.toml
 '''
 
 # Import external dependencies
@@ -7,40 +7,35 @@ import html
 from pydantic import ValidationError
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QMessageBox,
-    QPushButton, QScrollArea, QToolButton, QVBoxLayout, QWidget,
+    QGridLayout, QHBoxLayout, QLabel, QMessageBox,
+    QScrollArea, QToolButton, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
-from pickmix.config import HOTKEYS, Kind
+from pickmix.config import Kind
 from pickmix.estimates import EstimateService
-from pickmix.gui.average_pane import AveragePane
-from pickmix.gui.kind_dialog import DELETED, KindDialog
-from pickmix.gui.style import heading, icon, tidy
+from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
+from pickmix.gui.style import heading, icon, icon_button, transparent_scroll
 from pickmix.model import Session
 from pickmix.project import Project
 
-# NO_KIND: text of the hotkey choice that leaves a key unused
-NO_KIND: str = '(none)'
-
 # _CARD_WIDTH: narrowest a kind's block gets, in pixels, before the grid drops a column
-_CARD_WIDTH: int = 260
+_CARD_WIDTH: int = 180
 
-# KindsTab: the kinds as a list with an edit button each, and one dropdown per hotkey
-class KindsTab(QWidget):
+# KindsPane: the kinds as a list with an edit button each, and one dropdown per hotkey
+class KindsPane(QWidget):
     # config_saved: the kinds or hotkeys were written to config.toml
     config_saved = Signal()
 
-    # __init__: build the Kinds and Hotkeys panes over the Average pane
+    # __init__: build the Kinds and Hotkeys panes
     def __init__(self) -> None:
         super().__init__()
         self.project: Project | None = None
         self.session: Session | None = None
         self.service: EstimateService | None = None
-        self._loading = False
         self.details: dict[str, QLabel] = {}
         self.edit_buttons: dict[str, QToolButton] = {}
-        self.add_button = QPushButton('Add')
+        self.add_button = icon_button('add', 'Add', 'Add a kind')
         self.add_button.clicked.connect(self.add_kind)
         self.cards: list[QWidget] = []
         self._columns = 0
@@ -51,34 +46,19 @@ class KindsTab(QWidget):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setWidget(holder)
+        transparent_scroll(self.scroll)
         self.scroll.setMinimumHeight(220)
         self.scroll.viewport().installEventFilter(self)
         head = QHBoxLayout()
         head.addWidget(heading('Kinds'))
         head.addStretch()
         head.addWidget(self.add_button)
-        kinds_pane = QVBoxLayout()
-        kinds_pane.addLayout(head)
-        kinds_pane.addWidget(self.scroll, 1)
-        self.hotkey_boxes = [QComboBox() for _ in range(HOTKEYS)]
-        keys = QFormLayout()
-        for i, box in enumerate(self.hotkey_boxes):
-            keys.addRow(str(i + 1), box)
-            box.currentTextChanged.connect(lambda text, i=i: self._hotkey_changed(i, text))
-        hotkeys_pane = QVBoxLayout()
-        hotkeys_pane.addWidget(heading('Hotkeys'))
-        hotkeys_pane.addLayout(keys)
-        hotkeys_pane.addStretch()
-        top = QHBoxLayout()
-        top.addLayout(kinds_pane, 2)
-        top.addLayout(hotkeys_pane, 1)
         self.status = QLabel()
-        self.average = AveragePane()
         layout = QVBoxLayout(self)
-        tidy(layout)
-        layout.addLayout(top, 1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addLayout(head)
+        layout.addWidget(self.scroll, 1)
         layout.addWidget(self.status)
-        layout.addWidget(self.average)
 
     # set_project: show the kinds and hotkeys of a project
     def set_project(self, project: Project) -> None:
@@ -89,7 +69,6 @@ class KindsTab(QWidget):
     # set_session: the picks and estimates that follow a kind when it is renamed or deleted, or none; the Average pane uses them too
     def set_session(self, session: Session | None, service: EstimateService | None) -> None:
         self.session, self.service = session, service
-        self.average.set_session(session, service)
 
     # eventFilter: lay the kinds out again when the list is resized
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
@@ -109,10 +88,9 @@ class KindsTab(QWidget):
     def edit_kind(self, name: str) -> None:
         self._edit(name)
 
-    # _show: rebuild the list and the hotkey dropdowns from the config
+    # _show: rebuild the list from the config
     def _show(self) -> None:
         assert self.project is not None
-        self._loading = True
         for card in self.cards:
             self.grid.removeWidget(card)
             card.deleteLater()
@@ -121,12 +99,6 @@ class KindsTab(QWidget):
             self.cards.append(self._card(name, kind))
         self._columns = 0
         self._reflow()
-        names = [NO_KIND, *self.project.config.kinds]
-        for box, chosen in zip(self.hotkey_boxes, self.project.config.hotkeys, strict=True):
-            box.clear()
-            box.addItems(names)
-            box.setCurrentText(chosen or NO_KIND)
-        self._loading = False
 
     # _reflow: put the kinds in as many equal columns as fit, filling across then down
     def _reflow(self) -> None:
@@ -237,19 +209,6 @@ class KindsTab(QWidget):
     # _confirm: ask a yes or no question
     def _confirm(self, text: str) -> bool:
         return QMessageBox.question(self, 'Delete kind', text) == QMessageBox.StandardButton.Yes
-
-    # _hotkey_changed: save a hotkey choice; a kind lives on one key, so choosing it moves it
-    def _hotkey_changed(self, slot: int, text: str) -> None:
-        if self._loading or self.project is None:
-            return
-        self._loading = True
-        for i, box in enumerate(self.hotkey_boxes):
-            if i != slot and text != NO_KIND and box.currentText() == text:
-                box.setCurrentText(NO_KIND)
-        self._loading = False
-        keys = [b.currentText() for b in self.hotkey_boxes]
-        self.project.update(hotkeys=['' if k == NO_KIND else k for k in keys])
-        self._saved()
 
     # _saved: show the config as written and tell the other tabs
     def _saved(self) -> None:
