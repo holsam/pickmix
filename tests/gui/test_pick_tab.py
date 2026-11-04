@@ -225,3 +225,27 @@ class TestPickTab:
         assert tab.table.horizontalHeaderItem(0).text() == '' and tab.table.cellWidget(0, 0) is not None
         qtbot.waitUntil(lambda: tab.table.cellWidget(0, 0).status == 'ok', timeout=5000)
         assert tab.status.text() == ''
+
+    # test_layout: Z is a vertical scrollbar; image, view and kind controls sit in the narrow settings pane
+    def test_layout(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.z_slider.orientation() == Qt.Orientation.Vertical and tab.settings.width() <= 220
+        for widget in (tab.lo_slider, tab.hi_slider, tab.invert_box, tab.auto_button, tab.fit_button, tab.rings_box, tab.boxes_box, tab.normals_box, *tab.kind_buttons.values()):
+            assert tab.settings.isAncestorOf(widget)
+        assert not tab.settings.isAncestorOf(tab.table) and not tab.settings.isAncestorOf(tab.z_slider)
+        header = tab.table.horizontalHeader()
+        assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed and header.sectionResizeMode(1) == QHeaderView.ResizeMode.ResizeToContents
+
+    # test_view_toggles: each overlay toggle starts shown, hides its overlay and shows a different eye when hidden
+    def test_view_toggles(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert all(b.isChecked() for b in (tab.rings_box, tab.boxes_box, tab.normals_box))
+        shown_icon = tab.rings_box.icon().cacheKey()
+        tab.rings_box.click()
+        assert not tab.rings_box.isChecked() and tab.rings_box.icon().cacheKey() != shown_icon
+        assert tab.rings_box.text() == 'Rings'
+
+    # test_delete_icon: delete is an icon button with a tooltip
+    def test_delete_icon(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert not tab.delete_button.icon().isNull() and tab.delete_button.toolTip()

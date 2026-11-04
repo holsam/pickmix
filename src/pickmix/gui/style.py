@@ -4,7 +4,7 @@ pickmix: shared GUI text levels and spacing
 
 # Import external dependencies
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QTableWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QTableWidget, QToolButton, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.components.icons import icon, tinted
@@ -71,6 +71,22 @@ def eye_toggle(button: QPushButton, shown: bool) -> None:
         button.setText('(hidden)' if shown else '(shown)')
     else:
         button.setIcon(eye)
+
+# view_toggle: a checkable toggle named after what it shows, its eye icon open when shown and crossed when hidden
+def view_toggle(name: str) -> QToolButton:
+    button = QToolButton()
+    button.setText(name)
+    button.setCheckable(True)
+    button.setChecked(True)
+    button.setAutoRaise(True)
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setStyleSheet('QToolButton { border: none; background: transparent; }')
+    button.setToolTip(f'Show or hide {name.lower()}')
+    button.toggled.connect(lambda shown, b=button, n=name: _view_look(b, n, shown))
+    _view_look(button, name, True)
+    return button
 
 # form_label: "Title (?):" for the label column of a form, the marker explaining the field on hover
 def form_label(title: str, tip: str) -> QWidget:
@@ -179,3 +195,11 @@ def _styled(text: str, step: float, *, bold: bool) -> QLabel:
     font.setBold(bold)
     label.setFont(font)
     return label
+
+# _view_look: the eye icon for a toggle's state, or the word hidden after the name without the icon files
+def _view_look(button: QToolButton, name: str, shown: bool) -> None:
+    eye = icon('visibility' if shown else 'visibility_off')
+    if eye is None:
+        button.setText(name if shown else f'{name} (hidden)')
+    else:
+        button.setIcon(eye)

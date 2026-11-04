@@ -7,7 +7,7 @@ import numpy as np
 from concurrent.futures import Future
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QCheckBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
+    QButtonGroup, QCheckBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
     QScrollBar, QSlider, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -19,7 +19,7 @@ from pickmix.gui.components.icons import icon
 from pickmix.gui.components.status import StatusBadge, fit_status
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title
+from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title, view_toggle
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -54,7 +54,7 @@ class PickTab(QWidget):
         self.tomo_toggle.setAutoRaise(True)
         self.tomo_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.tomo_toggle.clicked.connect(lambda: self.set_tomo_visible(self.tomo.isHidden()))
-        self.kind_row = QHBoxLayout()
+        self.kind_box = QVBoxLayout()
         self.kind_buttons: dict[str, QPushButton] = {}
         self.kind_toggles: dict[str, QPushButton] = {}
         self.group = QButtonGroup(self)
@@ -65,9 +65,9 @@ class PickTab(QWidget):
         self.hi_slider = QSlider(Qt.Orientation.Horizontal)
         for slider in (self.lo_slider, self.hi_slider):
             slider.setRange(0, _STEPS)
-        self.rings_box = QCheckBox('Rings')
-        self.boxes_box = QCheckBox('Boxes')
-        self.normals_box = QCheckBox('Normals')
+        self.rings_box = view_toggle('Rings')
+        self.boxes_box = view_toggle('Boxes')
+        self.normals_box = view_toggle('Normals')
         for box in (self.rings_box, self.boxes_box, self.normals_box):
             box.setChecked(True)
             box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -85,11 +85,17 @@ class PickTab(QWidget):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setColumnWidth(0, 28)
-        self.delete_button = QPushButton('Delete selected')
+        self.delete_button = QPushButton()
+        trash = icon('delete')
+        if trash is None:
+            self.delete_button.setText('Delete')
+        else:
+            self.delete_button.setIcon(trash)
+        self.delete_button.setToolTip('Delete the selected pick (Delete)')
         for button in (self.auto_button, self.fit_button, self.delete_button):
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._row_ids: list[int] = []
-        # settings pane on the right: image controls, then overlays
+        # settings pane on the right: image controls, what to show, then the kinds
         image = QGroupBox('Image')
         image_form = QFormLayout(image)
         image_form.addRow('Contrast low', self.lo_slider)
@@ -99,16 +105,19 @@ class PickTab(QWidget):
         buttons.addWidget(self.auto_button)
         buttons.addWidget(self.fit_button)
         image_form.addRow(buttons)
-        overlay = QGroupBox('Overlay')
-        overlay_box = QVBoxLayout(overlay)
-        for box in (self.rings_box, self.boxes_box, self.normals_box):
-            overlay_box.addWidget(box)
+        view = QGroupBox('View')
+        view_grid = QGridLayout(view)
+        for i, box in enumerate((self.rings_box, self.boxes_box, self.normals_box)):
+            view_grid.addWidget(box, i // 2, i % 2)
+        kinds = QGroupBox('Kinds')
+        kinds.setLayout(self.kind_box)
         self.settings = QWidget()
-        self.settings.setFixedWidth(260)
+        self.settings.setFixedWidth(220)
         settings_layout = QVBoxLayout(self.settings)
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.addWidget(image)
-        settings_layout.addWidget(overlay)
+        settings_layout.addWidget(view)
+        settings_layout.addWidget(kinds)
         settings_layout.addStretch()
         # vertical Z scrollbar between the canvas and the settings
         z_column = QVBoxLayout()
@@ -131,7 +140,6 @@ class PickTab(QWidget):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.addLayout(self.kind_row)
         content_layout.addLayout(middle, 1)
         content_layout.addLayout(bottom)
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -187,8 +195,8 @@ class PickTab(QWidget):
             return
         for button in self.kind_buttons.values():
             self.group.removeButton(button)
-        while self.kind_row.count():
-            widget = self.kind_row.takeAt(0).widget()
+        while self.kind_box.count():
+            widget = self.kind_box.takeAt(0).widget()
             if widget is not None:
                 widget.deleteLater()
         self.kind_buttons, self.kind_toggles = {}, {}
@@ -196,7 +204,6 @@ class PickTab(QWidget):
         self.hidden &= set(kinds)
         # key number of each kind that has a hotkey
         keys = {name: i + 1 for i, name in enumerate(self.session.project.config.hotkeys) if name}
-        self.kind_row.addWidget(hint('Hotkeys:'))
         for name, kind in kinds.items():
             # first button selects kind
             key = QPushButton(f'({keys[name]}) {name}' if name in keys else name)
@@ -228,8 +235,7 @@ class PickTab(QWidget):
             pair_row.setSpacing(0)
             pair_row.addWidget(key)
             pair_row.addWidget(toggle)
-            self.kind_row.addWidget(pair)
-        self.kind_row.addStretch()
+            self.kind_box.addWidget(pair)
         # no kinds leaves nothing to pick as
         if kinds:
             self._set_active(self.active if self.active in kinds else next(iter(kinds)))
