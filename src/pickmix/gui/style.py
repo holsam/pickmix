@@ -4,8 +4,8 @@ pickmix: shared GUI text levels and spacing
 
 # Import external dependencies
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QTableWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QIcon
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QScrollArea, QTableWidget, QToolButton, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.components.icons import icon, tinted
@@ -19,6 +19,12 @@ CELL_PADDING: int = 14
 
 # RADIUS: corner radius of rounded buttons, pixels
 RADIUS: int = 16
+
+# ICON_COLOUR: colour of every action icon
+ICON_COLOUR: str = '#ffffff'
+
+# MEDIUM_PAD: pixels added to a medium button's icon edge to get its square size
+MEDIUM_PAD: int = 16
 
 # BIG_ICON, BIG_GAP: edge in pixels of the icon on a big button, and the pixels between it and the text
 BIG_ICON: int = 48
@@ -173,12 +179,20 @@ def big_button(text: str, stem: str) -> QPushButton:
         child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     return button
 
-# icon_button: an icon-only button with a tooltip, or a text button when the icon file is missing
-def icon_button(stem: str, text: str, tip: str) -> QPushButton:
-    found = icon(stem)
+# white: a bundled icon redrawn in the action colour, or None when its file is not there
+def white(stem: str, size: int = 16) -> QIcon | None:
+    return tinted(stem, colour=ICON_COLOUR, size=size)
+
+# icon_button: an icon-only white button with a tooltip, or a text button when the icon file is missing; size makes it a rounded square of that icon edge plus padding
+def icon_button(stem: str, text: str, tip: str, *, size: int | None = None) -> QPushButton:
+    found = white(stem, size or 16)
     button = QPushButton() if found is not None else QPushButton(text)
     if found is not None:
         button.setIcon(found)
+    if size is not None:
+        button.setIconSize(QSize(size, size))
+        button.setFixedSize(size + MEDIUM_PAD, size + MEDIUM_PAD)
+        rounded(button)
     button.setToolTip(tip)
     return button
 
@@ -191,6 +205,21 @@ def image_well(label: QLabel, size: int) -> None:
 # pad_cells: the quiet table look, with padded cells and headings, no heading borders and left-aligned heading text
 def pad_cells(table: QTableWidget) -> None:
     table.setStyleSheet(f'QTableWidget::item {{ padding: 0 {CELL_PADDING}px; }} QHeaderView::section {{ padding: 4px {CELL_PADDING}px; border: none; text-align: left; }}')
+
+# quiet_table: the Project > Tomograms look for any table: no grid, no row numbers, whole-row selection, padded cells, left-aligned headings
+def quiet_table(table: QTableWidget, *, editable: bool = False) -> None:
+    table.verticalHeader().hide()
+    table.setShowGrid(False)
+    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers if editable else QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    pad_cells(table)
+
+# transparent_scroll: a scroll area that shows what is behind it instead of painting the window colour; call after setWidget
+def transparent_scroll(scroll: QScrollArea) -> None:
+    scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+    scroll.viewport().setAutoFillBackground(False)
+    scroll.widget().setAutoFillBackground(False)
 
 # _styled: a label in the application font shifted by step points
 def _styled(text: str, step: float, *, bold: bool) -> QLabel:

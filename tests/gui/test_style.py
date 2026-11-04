@@ -5,7 +5,7 @@ pickmix: tests for shared GUI styling
 # Import external dependencies
 import pytest
 from pytestqt.qtbot import QtBot
-from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QLabel, QTableWidget, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.panes.kinds_pane import KindsPane
@@ -13,7 +13,7 @@ from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.gui.tabs.review_tab import ReviewTab
-from pickmix.gui.style import MARGIN, SPACING, body_pt, form_label, heading, help_marker, hint, icon, standardise, tidy, title
+from pickmix.gui.style import MARGIN, MEDIUM_PAD, SPACING, body_pt, form_label, heading, help_marker, hint, icon, icon_button, quiet_table, standardise, tidy, title
 
 # TestStyle: shared text levels and spacing
 class TestStyle:
@@ -66,3 +66,19 @@ class TestStyle:
         qtbot.addWidget(tab)
         layout = tab.layout()
         assert layout.contentsMargins().left() == MARGIN and layout.spacing() == SPACING
+
+    # test_quiet_table: no row numbers, no grid, whole rows, read-only unless asked
+    def test_quiet_table(self, qtbot: QtBot) -> None:
+        table = QTableWidget(1, 1)
+        qtbot.addWidget(table)
+        quiet_table(table)
+        assert table.verticalHeader().isHidden() and not table.showGrid()
+        assert table.editTriggers() == QAbstractItemView.EditTrigger.NoEditTriggers
+        quiet_table(table, editable=True)
+        assert table.editTriggers() != QAbstractItemView.EditTrigger.NoEditTriggers
+
+    # test_icon_button_size: with a size the button is a square of the icon edge plus padding
+    def test_icon_button_size(self, qtbot: QtBot) -> None:
+        button = icon_button('refresh', 'Reload', 'tip', size=28)
+        qtbot.addWidget(button)
+        assert button.width() == button.height() == 28 + MEDIUM_PAD

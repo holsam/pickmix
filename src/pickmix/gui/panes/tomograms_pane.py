@@ -4,14 +4,13 @@ pickmix: tomograms pane, every tomogram of the project with warnings and rejecti
 
 # Import external dependencies
 from collections import Counter
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.components.icons import tinted
 from pickmix.gui.components.status import Status, status_item
-from pickmix.gui.style import ERROR, MUTED, OK, heading, hint, pad_cells
+from pickmix.gui.style import ERROR, MUTED, OK, heading, hint, quiet_table
 from pickmix.project import Project
 
 # _COLUMNS: table headings; the first column is the status marker and has none
@@ -29,13 +28,8 @@ class TomogramsPane(QWidget):
         self.summary = hint()
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
-        self.table.verticalHeader().hide()
-        self.table.setShowGrid(False)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        pad_cells(self.table)
+        quiet_table(self.table)
         header = self.table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setStretchLastSection(True)
