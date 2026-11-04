@@ -5,11 +5,14 @@ pickmix: tests for GUI main window
 # Import external dependencies
 from collections.abc import Callable
 from pathlib import Path
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QShortcut
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
+from pickmix.config import Kind
 from pickmix.gui.main_window import MainWindow
 from pickmix.project import open_project
 
@@ -145,7 +148,7 @@ class TestMainWindow:
         window = MainWindow()
         qtbot.addWidget(window)
         keys = {s.key().toString(): s for s in window.findChildren(QShortcut)}
-        assert all(str(i) in keys for i in range(1, 10)) and 'Delete' in keys and 'Backspace' in keys
+        assert all(str(i) in keys for i in range(1, 10)) and 'Del' in keys and 'Backspace' in keys
         assert all(s.context() == Qt.ShortcutContext.WindowShortcut for s in keys.values())
 
     # test_hotkey_and_delete_from_other_focus: with focus off the canvas, a hotkey still picks the kind and delete still removes the pick
@@ -183,4 +186,16 @@ class TestMainWindow:
         window._hotkey(1)
         assert window.pick_tab.active == 'cage'
         window.service.shutdown()
+        window.loader.shutdown()
+
+    # test_return_steps_from_the_window: Enter and Shift+Enter reaching the window step tomograms on the Pick tab
+    def test_return_steps_from_the_window(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config(names=('A_1', 'B_2', 'C_3'))))
+        window.tabs.setCurrentWidget(window.pick_tab)
+        QTest.keyClick(window, Qt.Key.Key_Return)
+        assert window.session.index == 1
+        QTest.keyClick(window, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+        assert window.session.index == 0
         window.loader.shutdown()

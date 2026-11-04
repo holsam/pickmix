@@ -5,7 +5,7 @@ pickmix: main GUI window
 # Import external dependencies
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QDockWidget, QLineEdit, QMainWindow, QTabWidget
 
 # Import internal pickmix objects
@@ -60,13 +60,19 @@ class MainWindow(QMainWindow):
         self.project_tab.kinds_saved.connect(self._on_kinds)
         self.review_tab.open_pick.connect(self._open_pick)
         self.toast = install(self)
-        for keys, delta in (('Return', 1), ('Enter', 1), ('Shift+Return', -1), ('Shift+Enter', -1)):
-            shortcut = QShortcut(QKeySequence(keys), self, context=Qt.ShortcutContext.WindowShortcut)
-            shortcut.activated.connect(lambda delta=delta: self._step(delta))
         for i in range(1, 10):
             QShortcut(QKeySequence(str(i)), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(lambda i=i: self._hotkey(i - 1))
         for key in ('Delete', 'Backspace'):
             QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(self._delete_pick)
+
+    # keyPressEvent: Enter steps to the next tomogram and Shift+Enter to the previous. A text box handles Return first and ignores it, so a key reaching here was wanted by nothing else
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and mods in (Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.ShiftModifier):
+            self._step(-1 if mods == Qt.KeyboardModifier.ShiftModifier else 1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     # open_config: open a config.toml in the Project tab
     def open_config(self, path: Path) -> None:

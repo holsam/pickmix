@@ -462,3 +462,24 @@ class TestTomogramsPane:
         pane.set_project(open_project(make_config(names=('A_1', 'B_2'))))
         assert pane.table.horizontalHeaderItem(0).text() == '' and pane.table.columnWidth(0) == 28
         assert not pane.table.verticalHeader().isVisible() and not pane.table.showGrid()
+
+    # test_live_search: typing a name shows that tomogram without pressing Enter, and keeps the text
+    def test_live_search(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, session = _tomo_pane(qtbot, make_config)
+        pane.jump_edit.setText('other')
+        qtbot.waitUntil(lambda: session.current == 'Other_9', timeout=2000)
+        assert pane.jump_edit.text() == 'other'
+
+    # test_no_selection_highlight: clicking jumps but nothing is highlighted over the colours
+    def test_no_selection_highlight(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, session = _tomo_pane(qtbot, make_config)
+        assert pane.list.selectionMode() == pane.list.SelectionMode.NoSelection
+        pane._clicked(pane.list.item(1))
+        assert session.current == 'Position_1_3' and not pane.list.selectedItems()
+
+    # test_number_left_picks_right: the number column is left-aligned and the picks column right-aligned
+    def test_number_left_picks_right(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, session = _tomo_pane(qtbot, make_config)
+        session.store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
+        assert pane.header.text().startswith('No.')
+        assert pane.list.item(0).text().startswith('1  ') and pane.list.item(0).text().endswith('    1')

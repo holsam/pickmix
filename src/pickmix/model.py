@@ -167,16 +167,19 @@ class Session:
     def step(self, delta: int) -> None:
         self.go(self.index + delta)
 
-    # jump: go to a tomogram by 1-based number or by name (exact match first, else the first containing the text); False if nothing matches
-    def jump(self, query: str) -> bool:
+    # find: index of a tomogram by 1-based number or by name (exact match first, else the first containing the text), None if nothing matches
+    def find(self, query: str) -> int | None:
         query = query.strip().lower()
         lowered = [n.lower() for n in self.names]
         if query.isdigit():
-            hit = int(query) - 1 if 0 < int(query) <= len(lowered) else None
-        elif query:
-            hit = lowered.index(query) if query in lowered else next((i for i, n in enumerate(lowered) if query in n), None)
-        else:
-            hit = None
+            return int(query) - 1 if 0 < int(query) <= len(lowered) else None
+        if not query:
+            return None
+        return lowered.index(query) if query in lowered else next((i for i, n in enumerate(lowered) if query in n), None)
+
+    # jump: go to the tomogram find returns; False if nothing matches
+    def jump(self, query: str) -> bool:
+        hit = self.find(query)
         if hit is None:
             return False
         self.go(hit)
