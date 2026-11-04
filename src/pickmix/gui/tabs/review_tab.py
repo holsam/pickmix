@@ -16,10 +16,11 @@ from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
 from pickmix.export import Item, export_kind, recommend_box
 from pickmix.extract import extract_kind
-from pickmix.geometry import Parent, match_parents
+from pickmix.geometry import Parent
 from pickmix.gui.components.images import to_pixmap
 from pickmix.gui.style import tidy
 from pickmix.gui.workers import post, run_in_background
+from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
 from pickmix.model import Pick, Session
 
@@ -247,24 +248,17 @@ class ReviewTab(QWidget):
     # _items: picks of a kind that have a current fit
     def _items(self, kind: str) -> list[Item]:
         assert self.session is not None and self.service is not None
-        matched = self._matched(kind)
-        out = []
-        for pick in self.session.store.all(kind):
-            fit = self.service.store.get(pick)
-            if fit is not None:
-                out.append((pick, self._flagged(kind, pick, fit, matched)))
-        return out
+        return items(self.session, self.service, kind)
 
     # _matched: parent geometry for every pick of a kind, empty for a kind with no parent
     def _matched(self, kind: str) -> dict[int, Parent]:
         assert self.session is not None and self.service is not None
-        return match_parents(kind, self.session.project.config, self.session.store, self.service.store, self.session.project.tomos)
+        return matched(self.session, self.service, kind)
 
     # _flagged: the fit with noparent added to its flags when the pick's kind has a parent and the pick found none
-    def _flagged(self, kind: str, pick: Pick, fit: Fit, matched: dict[int, Parent]) -> Fit:
-        if self.session.project.config.kinds[kind].parent is None or pick.id in matched:
-            return fit
-        return fit.model_copy(update={'flag': ','.join(filter(None, [fit.flag, 'noparent']))})
+    def _flagged(self, kind: str, pick: Pick, fit: Fit, parents: dict[int, Parent]) -> Fit:
+        assert self.session is not None
+        return flagged(self.session, kind, pick, fit, parents)
 
     # _settings: minimum SNR and drop-flagged choice per kind from the export table; read on the GUI thread
     def _settings(self) -> dict[str, tuple[float, bool]]:
