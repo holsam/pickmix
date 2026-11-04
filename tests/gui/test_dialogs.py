@@ -5,7 +5,7 @@ pickmix: tests for gui dialogs
 # Import external dependencies
 import pytest
 from pathlib import Path
-from PySide6.QtWidgets import QFormLayout, QLabel
+from PySide6.QtWidgets import QAbstractItemView, QFormLayout, QLabel
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
@@ -105,6 +105,13 @@ class TestKindDialog:
 
 # TestNewProjectDialog: project creation dialog
 class TestNewProjectDialog:
+    # test_runs_table_quiet_but_editable: the runs table has the quiet look and its cells can still be typed into
+    def test_runs_table_quiet_but_editable(self, qtbot: QtBot) -> None:
+        dlg = NewProjectDialog()
+        qtbot.addWidget(dlg)
+        assert dlg.runs.verticalHeader().isHidden() and not dlg.runs.showGrid()
+        assert dlg.runs.editTriggers() != QAbstractItemView.EditTrigger.NoEditTriggers
+
     # test_values: filled fields become create_project arguments
     def test_values(self, qtbot: QtBot) -> None:
         dlg = NewProjectDialog()

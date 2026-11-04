@@ -76,6 +76,11 @@ class TestExportTab:
         tab, _, _ = setup()
         assert tab.average.kind_box.count() == 2
 
+    # test_quiet_table: the kinds table has the shared quiet look
+    def test_quiet_table(self, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.kinds_table.verticalHeader().isHidden() and not tab.kinds_table.showGrid()
+
     # test_export_and_extract: both write their files and report skipped picks
     def test_export_and_extract(self, qtbot: QtBot, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()

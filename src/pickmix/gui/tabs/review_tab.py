@@ -18,7 +18,7 @@ from pickmix.geometry import Parent
 from pickmix.gui.components.icons import icon
 from pickmix.gui.components.images import to_pixmap
 from pickmix.gui.components.status import fit_status, status_item
-from pickmix.gui.style import heading, image_well, tidy
+from pickmix.gui.style import heading, image_well, quiet_table, tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
@@ -76,8 +76,7 @@ class ReviewTab(QWidget):
             self.reestimate_button.setIcon(refresh)
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        quiet_table(self.table)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         # tomogram and kind take what they need, the other columns share the rest
         header = self.table.horizontalHeader()

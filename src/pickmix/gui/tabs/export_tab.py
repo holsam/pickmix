@@ -21,7 +21,7 @@ from pickmix.gui.components.icons import icon
 from pickmix.gui.components.status import StatusBadge
 from pickmix.gui.components.toast import notify
 from pickmix.gui.panes.average_pane import AveragePane
-from pickmix.gui.style import MUTED, tidy
+from pickmix.gui.style import MUTED, quiet_table, tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import items, matched
 from pickmix.loader import Loader
@@ -55,7 +55,7 @@ class ExportTab(QWidget):
         self.average = AveragePane()
         self.kinds_table = QTableWidget(0, len(_KIND_COLUMNS))
         self.kinds_table.setHorizontalHeaderLabels(_KIND_COLUMNS)
-        self.kinds_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        quiet_table(self.kinds_table)
         self.kinds_table.setMaximumHeight(160)
         # editable columns say so in their headers; read-only ones are greyed below
         pencil = icon('edit')

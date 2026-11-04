@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 
 # Import internal pickmix objects
 from pickmix.gui.components.path_field import PathField
-from pickmix.gui.style import error_look, form_label, tidy
+from pickmix.gui.style import error_look, form_label, quiet_table, tidy
 
 # NewProjectDialog: runs table plus directories; values() is the argument set for create_project
 class NewProjectDialog(QDialog):
@@ -29,6 +29,7 @@ class NewProjectDialog(QDialog):
         self.tomo_job = QLineEdit('Tomograms/job006')
         self.runs = QTableWidget(0, 2)
         self.runs.setHorizontalHeaderLabels(['Run', 'RELION project root'])
+        quiet_table(self.runs, editable=True)
         self.runs.horizontalHeader().setStretchLastSection(True)
         self.runs.setToolTip('One row per RELION run to merge: a name for the run and the RELION project root it lives in.')
         self.error = QLabel()

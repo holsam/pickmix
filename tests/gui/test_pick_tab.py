@@ -54,6 +54,11 @@ class TestPickTab:
         assert tab.z == 2 and tab.canvas.image_size() == (8, 6)
         assert tab.z_label.text() == '3 / 4'
 
+    # test_quiet_table: the pick table has the shared quiet look
+    def test_quiet_table(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        assert tab.table.verticalHeader().isHidden() and not tab.table.showGrid()
+
     # test_add_pick: a click adds a pick of the active kind on the current slice
     def test_add_pick(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, session = setup()

@@ -61,6 +61,11 @@ def parent_setup(qtbot: QtBot, make_config: Callable[..., Path]) -> Iterator[tup
 
 # TestReviewTab: Review tab
 class TestReviewTab:
+    # test_quiet_table: the pick table has the shared quiet look
+    def test_quiet_table(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.table.verticalHeader().isHidden() and not tab.table.showGrid()
+
     # test_table_and_filters: rows follow the filters
     def test_table_and_filters(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()

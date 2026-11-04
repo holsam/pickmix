@@ -20,7 +20,7 @@ from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import StatusBadge, fit_status
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, tidy, title, view_toggle
+from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, quiet_table, tidy, title, view_toggle
 from pickmix.loader import Loader, Opened
 from pickmix.model import Session
 from pickmix.timing import Timer
@@ -78,8 +78,7 @@ class PickTab(QWidget):
         self.fill_button = QPushButton('Fill')
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(['', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        quiet_table(self.table)
         self.table.setMaximumHeight(170)
         # status marker first and fixed so kinds always line up; Kind fits its names, the number columns share the rest
         header = self.table.horizontalHeader()
