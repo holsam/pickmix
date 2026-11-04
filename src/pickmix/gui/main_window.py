@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
     # _on_project: build the session and loader for a project and unlock the tabs
     def _on_project(self, project: Project) -> None:
         self.project = project
-        self.setWindowTitle(f'pickmix: {project.path}')
+        self.setWindowTitle(f'pickmix • {project.display_name}')
         self._shutdown()
         self.kinds_tab.set_project(project)
         if project.tomos:

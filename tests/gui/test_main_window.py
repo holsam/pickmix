@@ -109,3 +109,16 @@ class TestMainWindow:
         assert window.kinds_tab.kind_names() == [] and window.pick_tab.active is None
         window.service.shutdown()
         window.loader.shutdown()
+
+    # test_window_title: the title carries the project name while one is open
+    def test_window_title(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        project = open_project(path)
+        project.update(name='Cages')
+        window = MainWindow()
+        qtbot.addWidget(window)
+        assert window.windowTitle() == 'pickmix'
+        window.project_tab.set_project(open_project(path))
+        assert window.windowTitle() == 'pickmix • Cages'
+        window.project_tab.close_button.click()
+        assert window.windowTitle() == 'pickmix'
