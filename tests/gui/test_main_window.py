@@ -101,9 +101,9 @@ class TestMainWindow:
         # the platform may hold the window inside a small screen, so it only has to have grown and settled
         qtbot.waitUntil(lambda: window._resizing.state() == window._resizing.State.Stopped, timeout=3000)
         assert window.width() > WELCOME_SIZE[0] and window.height() > WELCOME_SIZE[1]
-        window.resize(1300, 820)
+        window.resize(1300, 950)
         window.project_tab.set_project(project)
-        assert size() == (1300, 820)
+        assert size() == (1300, 950)
         window.project_tab.close_button.click()
         qtbot.waitUntil(lambda: size() == WELCOME_SIZE, timeout=3000)
 

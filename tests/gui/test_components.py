@@ -21,7 +21,7 @@ from pickmix.gui.main_window import MainWindow
 
 # STEMS: bundled icons
 STEMS: list[str] = [
-    'add', 'cached', 'check', 'close', 'create_new_folder', 'delete', 'edit', 'error', 'fit_screen', 'folder_open', 'fullscreen',
+    'add', 'cached', 'check', 'close', 'create_new_folder', 'crop', 'delete', 'edit', 'error', 'download', 'fit_screen', 'folder_open', 'fullscreen',
     'help', 'left_panel_close', 'left_panel_open', 'logout', 'refresh', 'visibility', 'visibility_off', 'warning',
 ]
 

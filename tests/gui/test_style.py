@@ -13,7 +13,7 @@ from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.gui.tabs.review_tab import ReviewTab
-from pickmix.gui.style import MARGIN, MEDIUM_PAD, SPACING, body_pt, form_label, heading, help_marker, hint, icon, icon_button, quiet_table, standardise, tidy, title
+from pickmix.gui.style import MARGIN, MEDIUM_PAD, MEDIUM_SIZE, SPACING, big_button, medium_button, body_pt, form_label, heading, help_marker, hint, icon, icon_button, quiet_table, standardise, tidy, title
 
 # TestStyle: shared text levels and spacing
 class TestStyle:
@@ -66,6 +66,15 @@ class TestStyle:
         qtbot.addWidget(tab)
         layout = tab.layout()
         assert layout.contentsMargins().left() == MARGIN and layout.spacing() == SPACING
+
+    # test_medium_button: a medium button has its fixed size and its text, and a big one keeps its minimum
+    def test_medium_button(self, qtbot: QtBot) -> None:
+        medium, big = medium_button('Export', 'download'), big_button('Open', 'folder_open')
+        qtbot.addWidget(medium)
+        qtbot.addWidget(big)
+        assert (medium.width(), medium.height()) == MEDIUM_SIZE
+        assert any(label.text() == 'Export' for label in medium.findChildren(QLabel))
+        assert big.minimumWidth() == 200 and big.minimumHeight() == 150
 
     # test_quiet_table: no row numbers, no grid, whole rows, read-only unless asked
     def test_quiet_table(self, qtbot: QtBot) -> None:

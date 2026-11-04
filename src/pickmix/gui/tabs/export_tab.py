@@ -5,10 +5,10 @@ pickmix: Export tab, averages of each kind and RELION export and box extraction 
 # Import external dependencies
 import numpy as np
 from collections.abc import Callable
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QGroupBox, QHBoxLayout, QPushButton,
+    QCheckBox, QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -21,7 +21,7 @@ from pickmix.gui.components.icons import icon
 from pickmix.gui.components.status import StatusBadge
 from pickmix.gui.components.toast import notify
 from pickmix.gui.panes.average_pane import AveragePane
-from pickmix.gui.style import MUTED, quiet_table, tidy
+from pickmix.gui.style import MUTED, help_marker, medium_button, quiet_table, tidy
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import items, matched
 from pickmix.loader import Loader
@@ -35,6 +35,10 @@ _EDITABLE: tuple[int, ...] = (7, 8)
 
 # _ANY_SNR: minimum of the SNR filter, shown as "any"
 _ANY_SNR: float = -1000.0
+
+# _STAR_TIP, _CSV_TIP: what each export format writes, shown on the box and on its (?) marker
+_STAR_TIP: str = 'RELION particles.star and one coordinates file per tomogram, in out/relion/<kind>'
+_CSV_TIP: str = 'One picks and fits table per kind, in out/csv'
 
 # Settings: per kind, the minimum SNR and whether flagged picks are included
 type Settings = dict[str, tuple[float, bool]]
@@ -70,19 +74,29 @@ class ExportTab(QWidget):
         self.csv_box = QCheckBox('.csv')
         for box in (self.star_box, self.csv_box):
             box.setChecked(True)
-        self.star_box.setToolTip('RELION particles.star and one coordinates file per tomogram, in out/relion/<kind>')
-        self.csv_box.setToolTip('One picks and fits table per kind, in out/csv')
-        self.export_button = QPushButton('Export')
-        self.extract_button = QPushButton('Extract boxes')
+        self.star_box.setToolTip(_STAR_TIP)
+        self.csv_box.setToolTip(_CSV_TIP)
+        self.export_button = medium_button('Export', 'download')
+        self.extract_button = medium_button('Extract boxes', 'crop')
         self.extract_button.setToolTip('Cut the boxes as MRC files, in out/particles/<kind>')
         self.spinner = StatusBadge()
+        # formats above Export; the two buttons share a row so they line up
+        formats = QHBoxLayout()
+        formats.addWidget(self.star_box)
+        formats.addWidget(help_marker(_STAR_TIP))
+        formats.addSpacing(12)
+        formats.addWidget(self.csv_box)
+        formats.addWidget(help_marker(_CSV_TIP))
+        formats.addStretch()
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(24)
+        grid.addLayout(formats, 0, 0)
+        grid.addWidget(self.export_button, 1, 0)
+        grid.addWidget(self.extract_button, 1, 1)
+        grid.addWidget(self.spinner, 1, 2, Qt.AlignmentFlag.AlignVCenter)
         buttons = QHBoxLayout()
-        buttons.addWidget(self.export_button)
-        buttons.addWidget(self.star_box)
-        buttons.addWidget(self.csv_box)
-        buttons.addSpacing(24)
-        buttons.addWidget(self.extract_button)
-        buttons.addWidget(self.spinner)
+        buttons.addStretch()
+        buttons.addLayout(grid)
         buttons.addStretch()
         export = QGroupBox('Export and extract')
         box = QVBoxLayout(export)

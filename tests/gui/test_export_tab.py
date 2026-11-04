@@ -6,14 +6,14 @@ pickmix: tests for the Export tab
 import csv, pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QSize, Qt
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
 from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
-from pickmix.gui.style import MUTED
+from pickmix.gui.style import MEDIUM_SIZE, MUTED
 from pickmix.gui.tabs.export_tab import ExportTab
 from pickmix.loader import Loader
 from pickmix.model import Session
@@ -75,6 +75,18 @@ class TestExportTab:
     def test_average_pane_wired(self, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
         tab, _, _ = setup()
         assert tab.average.kind_box.count() == 2
+
+    # test_buttons_side_by_side: Export and Extract are equal medium buttons on one row, Export on the left, with the formats above Export
+    def test_buttons_side_by_side(self, qtbot: QtBot, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        tab.show()
+        qtbot.waitExposed(tab)
+        export, extract = tab.export_button, tab.extract_button
+        assert export.size() == extract.size() == QSize(*MEDIUM_SIZE)
+        assert export.mapTo(tab, QPoint()).y() == extract.mapTo(tab, QPoint()).y()
+        assert export.mapTo(tab, QPoint()).x() < extract.mapTo(tab, QPoint()).x()
+        for box in (tab.star_box, tab.csv_box):
+            assert box.mapTo(tab, QPoint()).y() < export.mapTo(tab, QPoint()).y()
 
     # test_quiet_table: the kinds table has the shared quiet look
     def test_quiet_table(self, setup: Callable[[], tuple[ExportTab, Session, EstimateService]]) -> None:

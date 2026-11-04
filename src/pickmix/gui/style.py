@@ -157,18 +157,30 @@ def rounded(button: QPushButton) -> None:
 def toast_look(label: QLabel) -> None:
     label.setStyleSheet('background: rgba(40, 40, 40, 230); color: white; border-radius: 6px; padding: 8px 12px;')
 
+# MEDIUM_ICON, MEDIUM_SIZE: icon edge and (width, height) of a medium icon-over-text button, pixels
+MEDIUM_ICON: int = 28
+MEDIUM_SIZE: tuple[int, int] = (170, 90)
+
 # big_button: icon over text with a fixed gap when the icon file exists, text alone otherwise
 def big_button(text: str, stem: str) -> QPushButton:
+    return _icon_over_text(text, stem, BIG_ICON, (200, 150), minimum=True)
+
+# medium_button: the same look at a smaller, fixed size, for actions inside a page
+def medium_button(text: str, stem: str) -> QPushButton:
+    return _icon_over_text(text, stem, MEDIUM_ICON, MEDIUM_SIZE, minimum=False)
+
+# _icon_over_text: a rounded button holding a white icon over a heading; minimum sets a minimum size, otherwise the size is fixed
+def _icon_over_text(text: str, stem: str, icon_px: int, size: tuple[int, int], *, minimum: bool) -> QPushButton:
     button = QPushButton()
-    button.setMinimumSize(200, 150)
+    (button.setMinimumSize if minimum else button.setFixedSize)(*size)
     rounded(button)
     inner = QVBoxLayout(button)
     inner.setSpacing(BIG_GAP)
     inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    found = tinted(stem, colour='#ffffff', size=BIG_ICON)
+    found = tinted(stem, colour='#ffffff', size=icon_px)
     if found is not None:
         picture = QLabel()
-        picture.setPixmap(found.pixmap(QSize(BIG_ICON, BIG_ICON)))
+        picture.setPixmap(found.pixmap(QSize(icon_px, icon_px)))
         picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(picture)
     label = heading(text)
