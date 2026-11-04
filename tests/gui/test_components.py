@@ -5,7 +5,7 @@ pickmix: tests for gui components
 # Import external dependencies
 import numpy as np, pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QWheelEvent
+from PySide6.QtGui import QColor, QWheelEvent
 from PySide6.QtTest import QTest
 from pytestqt.qtbot import QtBot
 

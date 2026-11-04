@@ -413,7 +413,7 @@ class TestWelcomePane:
 
     # test_text_fallback: without icon files the buttons are text only
     def test_text_fallback(self, qtbot: QtBot, monkeypatch) -> None:
-        monkeypatch.setattr('pickmix.gui.panes.welcome_pane.tinted', lambda stem, **kwargs: None)
+        monkeypatch.setattr('pickmix.gui.style.tinted', lambda stem, **kwargs: None)
         pane = WelcomePane()
         qtbot.addWidget(pane)
         assert [label.text() for label in pane.open_button.findChildren(QLabel)] == ['Open project']
