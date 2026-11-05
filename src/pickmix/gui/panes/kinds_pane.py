@@ -147,7 +147,7 @@ class KindsPane(QWidget):
         if self.project is None:
             return
         kinds = self.project.config.kinds
-        dialog = KindDialog(self, name, None if name is None else kinds[name], [k for k in kinds if k != name], lambda new, kind: self._problem(new, kind, name))
+        dialog = KindDialog(self, name, None if name is None else kinds[name], [k for k in kinds if k != name], lambda new, kind: self._problem(new, kind, name), tomo_angpix=self.project.common_pixel_size)
         result = dialog.exec()
         if result == DELETED and name is not None:
             self._delete(name)

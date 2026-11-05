@@ -33,7 +33,7 @@ class KindDialog(QDialog):
     # __init__: build the form; name and kind are None when adding, others are the kinds besides this one (so the parent choices and the names this kind cannot take), and check returns why a name and kind cannot be saved, or None
     def __init__(
         self, parent: QWidget | None, name: str | None, kind: Kind | None, others: list[str],
-        check: Callable[[str, Kind], str | None],
+        check: Callable[[str, Kind], str | None], *, tomo_angpix: float | None = None,
     ) -> None:
         super().__init__(parent)
         self._check = check
@@ -61,7 +61,12 @@ class KindDialog(QDialog):
         self.tilt_box.setChecked(kind.tilt_prior_deg is not None)
         self.tilt_spin.setEnabled(self.tilt_box.isChecked())
         self.tilt_box.toggled.connect(self.tilt_spin.setEnabled)
-        self.angpix_spin = _spin(kind.extract_angpix, minimum=0.01)
+        self.angpix_spin = _spin(kind.extract_angpix, minimum=0.01, decimals=3)
+        self.tomo_button = QPushButton('Tomogram')
+        self.tomo_button.setVisible(tomo_angpix is not None)
+        if tomo_angpix is not None:
+            self.tomo_button.setToolTip(f'Use the tomogram pixel size, {tomo_angpix:g} Å/px')
+            self.tomo_button.clicked.connect(lambda: self.angpix_spin.setValue(tomo_angpix))
         self.error = QLabel()
         error_look(self.error)
         self.error.setWordWrap(True)
@@ -74,6 +79,9 @@ class KindDialog(QDialog):
         colour_row = QHBoxLayout()
         colour_row.addWidget(self.colour_edit)
         colour_row.addWidget(choose)
+        angpix_row = QHBoxLayout()
+        angpix_row.addWidget(self.angpix_spin, 1)
+        angpix_row.addWidget(self.tomo_button)        
         tilt_row = QHBoxLayout()
         tilt_row.addWidget(self.tilt_box)
         tilt_row.addWidget(self.tilt_spin)
@@ -88,7 +96,7 @@ class KindDialog(QDialog):
         layout.addWidget(self._section('Estimation', [
             ('estimator', self.estimator_box), ('parent', self.parent_box), ('parent_tolerance_a', self.tolerance_spin),
         ]))
-        layout.addWidget(self._section('Extraction', [('tilt_prior_deg', tilt_row), ('extract_angpix', self.angpix_spin)]))
+        layout.addWidget(self._section('Extraction', [('tilt_prior_deg', tilt_row), ('extract_angpix', angpix_row)]))
         layout.addWidget(self.error)
         layout.addLayout(footer)
 
@@ -142,10 +150,10 @@ class KindDialog(QDialog):
         if colour.isValid():
             self.colour_edit.setText(colour.name())
 
-# _spin: a float spin box with two decimals
-def _spin(value: float, *, minimum: float = 0.0, maximum: float = 1_000_000.0) -> QDoubleSpinBox:
+# _spin: a float spin box, two decimals unless asked for more
+def _spin(value: float, *, minimum: float = 0.0, maximum: float = 1_000_000.0, decimals: int = 2) -> QDoubleSpinBox:
     box = QDoubleSpinBox()
     box.setRange(minimum, maximum)
-    box.setDecimals(2)
+    box.setDecimals(decimals)
     box.setValue(value)
     return box

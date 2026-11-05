@@ -34,6 +34,17 @@ class TestKindDialog:
         dialog.name_edit.setText('yellow')
         assert dialog.values() == ('yellow', Kind(marker_a=100, box_a=100))
 
+    # test_tomogram_pixel_size_button: button fills the extract pixel size with tomogram's, and only shows when it is known
+    def test_tomogram_pixel_size_button(self, qtbot: QtBot) -> None:
+        dialog = KindDialog(None, 'cage', Kind(marker_a=600), [], _ok, tomo_angpix=5.36)
+        qtbot.addWidget(dialog)
+        assert not dialog.tomo_button.isHidden() and dialog.values()[1].extract_angpix == 10.68
+        dialog.tomo_button.click()
+        assert dialog.values()[1].extract_angpix == 5.36
+        plain = KindDialog(None, 'cage', Kind(marker_a=600), [], _ok)
+        qtbot.addWidget(plain)
+        assert plain.tomo_button.isHidden()
+
     # test_delete_only_when_editing: an existing kind can be deleted, a new one cannot
     def test_delete_only_when_editing(self, qtbot: QtBot) -> None:
         dialog = KindDialog(None, 'cage', Kind(marker_a=600), [], _ok)
