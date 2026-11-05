@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
-from pickmix.config import HOTKEYS, RingParams
+from pickmix.config import HOTKEYS, Config, RingParams
 from pickmix.gui.components.collapsible import Collapsible
 from pickmix.gui.components.toast import notify
 from pickmix.gui.style import form_label, heading
@@ -80,11 +80,17 @@ class SettingsPane(QWidget):
         self._loading = False
         self.source_box = QComboBox()
         self.source_box.addItems(['denoised', 'raw'])
+        self.cache_spin = QSpinBox()
+        self.cache_spin.setRange(64, 1_000_000)
+        self.cache_spin.setSingleStep(256)
+        self.cache_spin.setKeyboardTracking(False)
         self.hotkey_boxes = [QComboBox() for _ in range(HOTKEYS)]
         self.ring_form = ParamsForm(RingParams())
         general = QGroupBox('General')
         form = QFormLayout(general)
         form.addRow('Volume source', self.source_box)
+        cache = Config.model_fields['cache_mb']
+        form.addRow(form_label(cache.title or 'cache_mb', cache.description or ''), self.cache_spin)
         for i, box in enumerate(self.hotkey_boxes):
             form.addRow(f'Hotkey {i + 1}', box)
             box.currentTextChanged.connect(lambda text, i=i: self._hotkey_changed(i, text))
@@ -100,6 +106,7 @@ class SettingsPane(QWidget):
         layout.addWidget(estimators)
         layout.addStretch()
         self.source_box.currentTextChanged.connect(self._save)
+        self.cache_spin.valueChanged.connect(self._save)
         self.ring_form.changed.connect(self._save)
 
     # set_project: show a project's settings without saving them back
@@ -107,6 +114,7 @@ class SettingsPane(QWidget):
         self.project = project
         self._loading = True
         self.source_box.setCurrentText(project.config.source)
+        self.cache_spin.setValue(project.config.cache_mb)
         self.ring_form.set(project.config.ring)
         self._loading = False
         self.refresh_hotkeys()
@@ -123,12 +131,12 @@ class SettingsPane(QWidget):
             box.setCurrentText(chosen or NO_KIND)
         self._loading = False
 
-    # _save: write source and ring parameters; a value the config refuses is not written
+    # _save: write source, slice cache and ring parameters; a value the config refuses is not written
     def _save(self) -> None:
         if self._loading or self.project is None:
             return
         try:
-            self.project.update(source=self.source_box.currentText(), ring=self.ring_form.get())
+            self.project.update(source=self.source_box.currentText(), cache_mb=self.cache_spin.value(), ring=self.ring_form.get())
         except ValidationError as e:
             notify(f'Not saved: {e.errors()[0]["msg"]}')
             return
