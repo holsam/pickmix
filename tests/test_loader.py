@@ -35,9 +35,9 @@ class TestLoader:
         assert loader.cached(NAME, 1) is not None
         loader.shutdown()
 
-    # test_lru_eviction: the oldest slice goes first and a touched one stays
+    # test_lru_eviction: the oldest slice goes first and a touched one stays; a slice here is 6 x 8 float32, 192 bytes
     def test_lru_eviction(self, make_config: Callable[..., Path]) -> None:
-        loader = _loader(make_config, cache_slices=2)
+        loader = _loader(make_config, cache_bytes=2 * 192)
         loader.slice(NAME, 0)
         loader.slice(NAME, 1)
         loader.cached(NAME, 0)
@@ -144,4 +144,26 @@ class TestLoader:
         assert all(loader.cached(NAME, z) is None for z in range(4))
         loader._warm_around(NAME, 0, loader._near_generation, 1, 3, 3)
         assert [loader.cached(NAME, z) is not None for z in range(4)] == [False, True, True, True]
+        loader.shutdown()
+
+    # test_cache_budget: the cache holds the budget in bytes and tracks it as slices come and go
+    def test_cache_budget(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config, cache_bytes=3 * 192)
+        for z in range(4):
+            loader.slice(NAME, z)
+        assert loader._bytes == 3 * 192 and loader.cached(NAME, 0) is None and loader.cached(NAME, 3) is not None
+        loader.shutdown()
+
+    # test_cache_budget_keeps_newest: a budget smaller than one slice still keeps the slice just read
+    def test_cache_budget_keeps_newest(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config, cache_bytes=1)
+        loader.slice(NAME, 0)
+        loader.slice(NAME, 1)
+        assert loader.cached(NAME, 0) is None and loader.cached(NAME, 1) is not None and loader._bytes == 192
+        loader.shutdown()
+
+    # test_default_budget: the budget comes from cache_mb in the config
+    def test_default_budget(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config)
+        assert loader.cache_bytes == 2048 * 1024 * 1024
         loader.shutdown()

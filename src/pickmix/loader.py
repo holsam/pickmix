@@ -18,6 +18,9 @@ from pickmix.timing import timed
 # _CONTRAST_HALF: slices either side of the middle used for contrast limits
 _CONTRAST_HALF: int = 2
 
+# _MIB: bytes in a mebibyte
+_MIB: int = 1024 * 1024
+
 # _WARM_CHUNK: bytes read per step when warming the page cache
 _WARM_CHUNK: int = 8 * 1024 * 1024
 
@@ -40,9 +43,9 @@ class Opened:
 # Loader: opens tomograms and serves slices
 class Loader:
     # __init__: nothing is read until asked
-    def __init__(self, project: Project, *, cache_slices: int = 96, keep_open: int = 3) -> None:
+    def __init__(self, project: Project, *, cache_bytes: int | None = None, keep_open: int = 3) -> None:
         self.project = project
-        self.cache_slices = cache_slices
+        self.cache_bytes = project.config.cache_mb * _MIB if cache_bytes is None else cache_bytes
         self.keep_open = keep_open
         self._fg = ThreadPoolExecutor(max_workers=2, thread_name_prefix='pickmix-slice')
         self._bg = ThreadPoolExecutor(max_workers=2, thread_name_prefix='pickmix-warm')
@@ -51,6 +54,7 @@ class Loader:
         self._inflight: dict[tuple[str, int], Future[np.ndarray]] = {}
         self._opened: OrderedDict[str, Future[Opened]] = OrderedDict()
         self._slices: OrderedDict[tuple[str, int], np.ndarray] = OrderedDict()
+        self._bytes = 0
         self._warm_generation = 0
         self._near_generation = 0
         self._fetching: Future[np.ndarray] | None = None
@@ -99,9 +103,7 @@ class Loader:
             pending.set_exception(e)
             raise
         with self._lock:
-            self._slices[key] = data
-            while len(self._slices) > self.cache_slices:
-                self._slices.popitem(last=False)
+            self._store(key, data)
             del self._inflight[key]
         pending.set_result(data)
         return data
@@ -140,6 +142,17 @@ class Loader:
             future.cancel()
             return future
         return pool.submit(fn, *args)
+
+    # _store: add a slice to the cache and drop the least recently used until it fits the budget, but never the slice just added; call with the lock held
+    def _store(self, key: tuple[str, int], data: np.ndarray) -> None:
+        old = self._slices.pop(key, None)
+        if old is not None:
+            self._bytes -= old.nbytes
+        self._slices[key] = data
+        self._bytes += data.nbytes
+        while self._bytes > self.cache_bytes and len(self._slices) > 1:
+            _, dropped = self._slices.popitem(last=False)
+            self._bytes -= dropped.nbytes
 
     # _tomo: the tomogram record for a name
     def _tomo(self, name: str) -> Tomogram:

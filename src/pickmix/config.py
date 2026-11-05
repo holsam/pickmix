@@ -70,6 +70,8 @@ class Config(BaseModel):
     out_dir: Path = Path('out')
     # volume read for display, estimation and extraction; falls back to raw when a tomogram has no denoised pair
     source: Literal['raw', 'denoised'] = 'denoised'
+    # most memory the slice cache may hold; scrolling is smooth where a whole tomogram fits
+    cache_mb: int = Field(default=2048, ge=64, title='Slice cache (MB)', description='Most memory the viewer may use to keep slices of tomograms ready for scrolling.')
     ring: RingParams = Field(default_factory=RingParams)
     kinds: dict[str, Kind] = Field(default_factory=_default_kinds)
     # kind chosen by each of the keys 1 to 9, '' for an unused key
