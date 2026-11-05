@@ -51,6 +51,21 @@ class RingParams(BaseModel):
     # box edge as a multiple of the ring diameter when the kind takes its box from the estimator
     box_margin: float = Field(default=1.25, title='Box margin (× diameter)', description='Box edge as a multiple of the ring diameter, for kinds that take their box from the estimator.')
 
+# MatchParams: settings of the template matching scan; title and description feed the settings form
+class MatchParams(BaseModel):
+    # template is binned until its edge is about this many pixels, which sets the speed of the scan
+    template_px: int = Field(default=32, ge=8, title='Template edge (px)', description='The tomogram and template are binned until the template is about this many pixels across. Smaller is faster and coarser.')
+    # candidates scoring below this are not kept
+    min_score: float = Field(default=0.2, gt=0, lt=1, title='Minimum score', description='Candidates with a normalised cross-correlation below this are not kept.')
+    # nearest two candidates may be, as a multiple of the kind's marker diameter
+    separation: float = Field(default=0.75, gt=0, title='Separation (× marker diameter)', description='Closest two candidates, or a candidate and a pick, may be.')
+    # mask radius as a multiple of the marker radius
+    mask_margin: float = Field(default=1.2, gt=0, title='Mask radius (× marker radius)', description='Radius of the spherical mask applied to the template, as a multiple of the marker radius.')
+    # best candidates kept per tomogram
+    max_per_tomogram: int = Field(default=200, ge=1, title='Most per tomogram', description='Most candidates kept in one tomogram, best first.')
+    # threads the correlation may use
+    workers: int = Field(default=2, ge=1, title='Threads', description='Threads the correlation may use. More is faster but slows the rest of the program.')
+
 # _default_kinds: the single cage kind used when a config has no kinds table
 def _default_kinds() -> dict[str, Kind]:
     return {'cage': Kind(marker_a=600.0, estimator='ring')}
@@ -73,6 +88,7 @@ class Config(BaseModel):
     # most memory the slice cache may hold; scrolling is smooth where a whole tomogram fits
     cache_mb: int = Field(default=2048, ge=64, title='Slice cache (MB)', description='Most memory the viewer may use to keep slices of tomograms ready for scrolling.')
     ring: RingParams = Field(default_factory=RingParams)
+    match: MatchParams = Field(default_factory=MatchParams)
     kinds: dict[str, Kind] = Field(default_factory=_default_kinds)
     # kind chosen by each of the keys 1 to 9, '' for an unused key
     hotkeys: list[str] = Field(default_factory=list)
