@@ -35,8 +35,11 @@ class Loader:
         self.project = project
         self.cache_slices = cache_slices
         self.keep_open = keep_open
-        self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='pickmix-load')
+        self._fg = ThreadPoolExecutor(max_workers=2, thread_name_prefix='pickmix-slice')
+        self._bg = ThreadPoolExecutor(max_workers=2, thread_name_prefix='pickmix-warm')
+        self._opener = ThreadPoolExecutor(max_workers=2, thread_name_prefix='pickmix-open')
         self._lock = threading.Lock()
+        self._inflight: dict[tuple[str, int], Future[np.ndarray]] = {}
         self._opened: OrderedDict[str, Future[Opened]] = OrderedDict()
         self._slices: OrderedDict[tuple[str, int], np.ndarray] = OrderedDict()
         self._warm_generation = 0
@@ -48,7 +51,7 @@ class Loader:
         with self._lock:
             future = self._opened.get(name)
             if future is None:
-                future = self._opened[name] = self._submit(self._open, name)
+                future = self._opened[name] = self._submit(self._opener, self._open, name)
             self._opened.move_to_end(name)
             while len(self._opened) > self.keep_open:
                 self._opened.popitem(last=False)
@@ -64,45 +67,62 @@ class Loader:
 
     # slice: the slice, reading it now if it is not cached; blocks, so call from a worker or when it is cheap
     def slice(self, name: str, z: int) -> np.ndarray:
+        key = (name, z)
         hit = self.cached(name, z)
         if hit is not None:
             return hit
-        opened = self.open(name).result()
-        with timed(f'slice {name} z={z}'):
-            data = np.array(opened.vol[z])
         with self._lock:
-            self._slices[(name, z)] = data
+            pending = self._inflight.get(key)
+            leader = pending is None
+            if pending is None:
+                pending = self._inflight[key] = Future()
+        if not leader:
+            return pending.result()
+        try:
+            opened = self.open(name).result()
+            with timed(f'slice {name} z={z}'):
+                data = np.array(opened.vol[z])
+        except BaseException as e:
+            with self._lock:
+                del self._inflight[key]
+            pending.set_exception(e)
+            raise
+        with self._lock:
+            self._slices[key] = data
             while len(self._slices) > self.cache_slices:
                 self._slices.popitem(last=False)
+            del self._inflight[key]
+        pending.set_result(data)
         return data
 
     # fetch: future of a slice, for the GUI to wait on without blocking
     def fetch(self, name: str, z: int) -> Future[np.ndarray]:
-        return self._submit(self.slice, name, z)
+        return self._submit(self._fg, self.slice, name, z)
 
     # prefetch: open a tomogram, read its middle slices and warm the page cache for the rest of the file
     def prefetch(self, name: str) -> None:
         self._warm_generation += 1
         generation = self._warm_generation
-        self._submit(self._prefetch, name, generation)
+        self._submit(self._bg, self._prefetch, name, generation)
 
     # warm_around: read slices near z so scrolling is served from memory
     def warm_around(self, name: str, z: int, radius: int = 8) -> None:
-        self._submit(self._warm_around, name, z, radius)
+        self._submit(self._bg, self._warm_around, name, z, radius)
 
     # shutdown: stop the threads
     def shutdown(self) -> None:
         self._closed = True
         self._warm_generation += 1
-        self._pool.shutdown(wait=False, cancel_futures=True)
+        for pool in (self._fg, self._bg, self._opener):
+            pool.shutdown(wait=False, cancel_futures=True)
 
-    # _submit: run on the pool, or hand back a cancelled future once shut down so late callers fail quietly
-    def _submit[T](self, fn: Callable[..., T], *args: object) -> Future[T]:
+    # _submit: run on a pool, or hand back a cancelled future once shut down so late callers fail quietly
+    def _submit[T](self, pool: ThreadPoolExecutor, fn: Callable[..., T], *args: object) -> Future[T]:
         if self._closed:
             future: Future[T] = Future()
             future.cancel()
             return future
-        return self._pool.submit(fn, *args)
+        return pool.submit(fn, *args)
 
     # _tomo: the tomogram record for a name
     def _tomo(self, name: str) -> Tomogram:

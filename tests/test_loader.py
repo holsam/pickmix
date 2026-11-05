@@ -3,12 +3,13 @@ pickmix: tests for tomogram slice loading
 '''
 
 # Import external dependencies
-import json, numpy as np
+import json, numpy as np, pytest, time
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.loader import Loader
+from pickmix.loader import Loader, Opened
 from pickmix.project import open_project
 
 # NAME: the single tomogram of the fixture project
@@ -76,7 +77,7 @@ class TestLoader:
         for _ in range(200):
             if loader.cached(NAME, 2) is not None:
                 break
-            loader._pool.submit(lambda: None).result()
+            loader._bg.submit(lambda: None).result()
         assert loader.cached(NAME, 2) is not None
         loader.shutdown()
 
@@ -84,4 +85,32 @@ class TestLoader:
     def test_fetch(self, make_config: Callable[..., Path]) -> None:
         loader = _loader(make_config)
         assert loader.fetch(NAME, 3).result().shape == (6, 8)
+        loader.shutdown()
+
+    # test_slice_read_once: concurrent requests for one slice share a single read
+    def test_slice_read_once(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config)
+        opened = loader.open(NAME).result()
+        reads = []
+        # _Counting: a volume that records which planes are read
+        class _Counting:
+            shape = opened.vol.shape
+            # __getitem__: record the plane, slowly enough for the other threads to arrive
+            def __getitem__(self, z: int) -> np.ndarray:
+                reads.append(z)
+                time.sleep(0.05)
+                return opened.vol[z]
+        loader._opened[NAME] = Future()
+        loader._opened[NAME].set_result(Opened(NAME, _Counting(), opened.limits))  # type: ignore[arg-type]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda _: loader.slice(NAME, 1), range(4)))
+        assert reads == [1] and all(np.array_equal(r, results[0]) for r in results)
+        loader.shutdown()
+
+    # test_slice_error_not_cached: a failed read raises for every waiter and is tried again next time
+    def test_slice_error_not_cached(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config)
+        with pytest.raises(IndexError):
+            loader.slice(NAME, 99)
+        assert loader._inflight == {} and loader.slice(NAME, 1).shape == (6, 8)
         loader.shutdown()
