@@ -9,7 +9,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.loader import Loader, Opened
+from pickmix.loader import Loader, Opened, warm_order
 from pickmix.project import open_project
 
 # NAME: the single tomogram of the fixture project
@@ -113,4 +113,35 @@ class TestLoader:
         with pytest.raises(IndexError):
             loader.slice(NAME, 99)
         assert loader._inflight == {} and loader.slice(NAME, 1).shape == (6, 8)
+        loader.shutdown()
+
+    # test_warm_order: nearest first, and the side the user is scrolling towards gets more
+    def test_warm_order(self) -> None:
+        assert warm_order(5, 20, sign=1, ahead=3, behind=1) == [6, 4, 7, 8]
+        assert warm_order(5, 20, sign=-1, ahead=3, behind=1) == [4, 6, 3, 2]
+        assert warm_order(1, 4, sign=1, ahead=5, behind=5) == [2, 0, 3]
+
+    # test_fetch_cancels_queued: a fetch that has not started is cancelled by the next one
+    def test_fetch_cancels_queued(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config)
+        gate = Future()
+        # two workers held busy, so the next fetches queue
+        blockers = [loader._fg.submit(gate.result) for _ in range(2)]
+        first = loader.fetch(NAME, 0)
+        second = loader.fetch(NAME, 1)
+        assert first.cancelled()
+        gate.set_result(None)
+        assert second.result().shape == (6, 8)
+        loader.shutdown()
+        assert all(b.done() for b in blockers)
+
+    # test_warm_stops_when_superseded: a newer warm_around stops an older one
+    def test_warm_stops_when_superseded(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config)
+        loader.open(NAME).result()
+        loader._near_generation += 1
+        loader._warm_around(NAME, 0, loader._near_generation - 1, 1, 3, 3)
+        assert all(loader.cached(NAME, z) is None for z in range(4))
+        loader._warm_around(NAME, 0, loader._near_generation, 1, 3, 3)
+        assert [loader.cached(NAME, z) is not None for z in range(4)] == [False, True, True, True]
         loader.shutdown()

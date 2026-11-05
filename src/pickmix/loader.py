@@ -21,6 +21,15 @@ _CONTRAST_HALF: int = 2
 # _WARM_CHUNK: bytes read per step when warming the page cache
 _WARM_CHUNK: int = 8 * 1024 * 1024
 
+# warm_order: slices to read around z, nearest first; sign is the scrolling direction, so slices ahead of it come before the ones behind
+def warm_order(z: int, depth: int, *, sign: int, ahead: int, behind: int) -> list[int]:
+    order = []
+    for d in range(1, max(ahead, behind) + 1):
+        for step, reach in ((sign * d, ahead), (-sign * d, behind)):
+            if d <= reach and 0 <= z + step < depth:
+                order.append(z + step)
+    return order
+
 # Opened: a tomogram ready to show; vol is the read-only (z, y, x) memory map
 @dataclass(frozen=True)
 class Opened:
@@ -43,6 +52,8 @@ class Loader:
         self._opened: OrderedDict[str, Future[Opened]] = OrderedDict()
         self._slices: OrderedDict[tuple[str, int], np.ndarray] = OrderedDict()
         self._warm_generation = 0
+        self._near_generation = 0
+        self._fetching: Future[np.ndarray] | None = None
         self._closed = False
         self._contrast_path = project.config.out_dir / 'contrast.json'
 
@@ -95,9 +106,13 @@ class Loader:
         pending.set_result(data)
         return data
 
-    # fetch: future of a slice, for the GUI to wait on without blocking
+    # fetch: future of a slice, for the GUI to wait on without blocking; the previous fetch is cancelled if it has not started, since the GUI has moved on
     def fetch(self, name: str, z: int) -> Future[np.ndarray]:
-        return self._submit(self._fg, self.slice, name, z)
+        with self._lock:
+            if self._fetching is not None:
+                self._fetching.cancel()
+            future = self._fetching = self._submit(self._fg, self.slice, name, z)
+        return future
 
     # prefetch: open a tomogram, read its middle slices and warm the page cache for the rest of the file
     def prefetch(self, name: str) -> None:
@@ -105,14 +120,16 @@ class Loader:
         generation = self._warm_generation
         self._submit(self._bg, self._prefetch, name, generation)
 
-    # warm_around: read slices near z so scrolling is served from memory
-    def warm_around(self, name: str, z: int, radius: int = 8) -> None:
-        self._submit(self._bg, self._warm_around, name, z, radius)
+    # warm_around: read slices near z so scrolling is served from memory, more of them ahead of the scrolling direction (sign) than behind; a newer call stops an older one
+    def warm_around(self, name: str, z: int, *, sign: int = 1, ahead: int = 16, behind: int = 4) -> None:
+        self._near_generation += 1
+        self._submit(self._bg, self._warm_around, name, z, self._near_generation, sign, ahead, behind)
 
     # shutdown: stop the threads
     def shutdown(self) -> None:
         self._closed = True
         self._warm_generation += 1
+        self._near_generation += 1
         for pool in (self._fg, self._bg, self._opener):
             pool.shutdown(wait=False, cancel_futures=True)
 
@@ -162,10 +179,12 @@ class Loader:
         self.slice(name, opened.vol.shape[0] // 2)
         self._warm_file(volume_path(self._tomo(name), source=self.project.config.source), generation)
 
-    # _warm_around: read z - radius .. z + radius
-    def _warm_around(self, name: str, z: int, radius: int) -> None:
+    # _warm_around: read the slices warm_order gives, until a newer warm_around starts
+    def _warm_around(self, name: str, z: int, generation: int, sign: int, ahead: int, behind: int) -> None:
         depth = self.open(name).result().vol.shape[0]
-        for zi in range(max(z - radius, 0), min(z + radius + 1, depth)):
+        for zi in warm_order(z, depth, sign=sign, ahead=ahead, behind=behind):
+            if self._near_generation != generation:
+                return
             self.slice(name, zi)
 
     # _warm_file: read a file sequentially so its pages are in the operating system cache; stops when a newer prefetch starts

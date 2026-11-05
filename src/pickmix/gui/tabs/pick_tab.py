@@ -41,6 +41,8 @@ class PickTab(QWidget):
         self.active: str | None = None
         self.hidden: set[str] = set()
         self.z = 0
+        # direction of the last z step, so read-ahead goes the way the user is scrolling
+        self._sign = 1
         self._timer: Timer | None = None
         self._first_slice = False
         self._range = (0.0, 1.0)
@@ -344,6 +346,7 @@ class PickTab(QWidget):
         if self.opened is None or self.loader is None:
             return
         name = self.opened.name
+        self._sign = 1 if z >= self.z else -1
         self.z = z
         total = self.opened.vol.shape[0]
         # as wide as the longest text it will show, so scrolling never changes the layout
@@ -360,7 +363,7 @@ class PickTab(QWidget):
 
     # _slice_done: a slice read finished; show it if it is still the one wanted
     def _slice_done(self, name: str, z: int, future: Future[np.ndarray]) -> None:
-        if self.opened is None or self.opened.name != name or self.z != z:
+        if future.cancelled() or self.opened is None or self.opened.name != name or self.z != z:
             return
         try:
             self._render(future.result())
@@ -377,7 +380,7 @@ class PickTab(QWidget):
             self.canvas.fit()
             if self._timer:
                 self._timer.lap('first slice shown')
-        self.loader.warm_around(self.opened.name, self.z)
+        self.loader.warm_around(self.opened.name, self.z, sign=self._sign)
 
     # _raw_window: contrast limits from the range slider, before brightness
     def _raw_window(self) -> tuple[float, float]:
