@@ -342,6 +342,14 @@ class TestSettingsPane:
             pane.source_box.setCurrentText('raw')
         assert load_config(path).source == 'raw'
 
+    # test_cache_autosaves: a committed slice cache size is written, and the project's own is shown
+    def test_cache_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        assert pane.cache_spin.value() == 2048
+        with qtbot.waitSignal(pane.config_saved):
+            pane.cache_spin.setValue(3072)
+        assert load_config(path).cache_mb == 3072
+
     # test_ring_value_autosaves: a committed ring value is written, the others are kept
     def test_ring_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         pane, path = _settings_pane(qtbot, make_config)
