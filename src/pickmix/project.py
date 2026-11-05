@@ -3,6 +3,7 @@ pickmix: project creation from RELION runs
 '''
 
 # Import external dependencies
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,12 @@ class Project:
         config = self.config.replace(**changes)
         save_config(config, self.path)
         self.config = config
+
+    # common_pixel_size: pixel size most tomograms share in A/px
+    @property
+    def common_pixel_size(self) -> float | None:
+        sizes = Counter(round(t.pixel_size, 3) for t in self.tomos.values())
+        return sizes.most_common(1)[0][0] if sizes else None
 
     # display_name: the configured name, else the name of the directory holding config.toml
     @property

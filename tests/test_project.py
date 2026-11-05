@@ -60,3 +60,10 @@ class TestProject:
         (tmp_path / 'raw').mkdir()
         path, _ = create_project(tmp_path / 'proj', [('r1', tmp_path / 'p')], 'Tomograms/job006', tmp_path / 'raw', name='Cages')
         assert load_config(path).name == 'Cages'
+
+    # test_common_pixel_size: the pixel size most tomograms share, None when there are none
+    def test_common_pixel_size(self, make_config: Callable[..., Path]) -> None:
+        project = open_project(make_config())
+        assert project.common_pixel_size == 5.36
+        project.tomos = {}
+        assert project.common_pixel_size is None
