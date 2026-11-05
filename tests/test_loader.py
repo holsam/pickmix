@@ -135,6 +135,29 @@ class TestLoader:
         loader.shutdown()
         assert all(b.done() for b in blockers)
 
+    # test_warm_fills_cache: after the nearby slices the rest of the tomogram is read outwards while the budget allows
+    def test_warm_fills_cache(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config)
+        loader.slice(NAME, 1)
+        loader._warm_around(NAME, 1, loader._near_generation, 1, 1, 1)
+        assert all(loader.cached(NAME, z) is not None for z in range(4))
+        small = Loader(loader.project, cache_bytes=3 * 192)
+        small.slice(NAME, 0)
+        small._warm_around(NAME, 0, small._near_generation, 1, 1, 1)
+        assert [small.cached(NAME, z) is not None for z in range(4)] == [True, True, True, False]
+        loader.shutdown()
+        small.shutdown()
+
+    # test_wait_idle: read-ahead waits while the viewer is reading, and gives up once it is no longer wanted
+    def test_wait_idle(self, make_config: Callable[..., Path]) -> None:
+        loader = _loader(make_config)
+        assert loader._wait_idle(lambda: False, 0.0)
+        loader._fg_running = 1
+        wanted = iter([False, False, True])
+        assert not loader._wait_idle(lambda: next(wanted), 0.0)
+        loader._fg_running = 0
+        loader.shutdown()
+
     # test_warm_stops_when_superseded: a newer warm_around stops an older one
     def test_warm_stops_when_superseded(self, make_config: Callable[..., Path]) -> None:
         loader = _loader(make_config)

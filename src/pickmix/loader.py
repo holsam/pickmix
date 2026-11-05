@@ -3,7 +3,7 @@ pickmix: asynchronous tomogram and slice loading with an LRU slice cache and pre
 '''
 
 # Import external dependencies
-import json, threading, numpy as np
+import json, threading, time, numpy as np
 from collections import OrderedDict
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -20,6 +20,9 @@ _CONTRAST_HALF: int = 2
 
 # _MIB: bytes in a mebibyte
 _MIB: int = 1024 * 1024
+
+# _IDLE_S: seconds after the last slice the viewer waited for before read-ahead of far slices and whole-file warming carry on
+_IDLE_S: float = 0.25
 
 # _WARM_CHUNK: bytes read per step when warming the page cache
 _WARM_CHUNK: int = 8 * 1024 * 1024
@@ -58,6 +61,8 @@ class Loader:
         self._warm_generation = 0
         self._near_generation = 0
         self._fetching: Future[np.ndarray] | None = None
+        self._fg_running = 0
+        self._fg_stamp = 0.0
         self._closed = False
         self._contrast_path = project.config.out_dir / 'contrast.json'
 
@@ -113,7 +118,8 @@ class Loader:
         with self._lock:
             if self._fetching is not None:
                 self._fetching.cancel()
-            future = self._fetching = self._submit(self._fg, self.slice, name, z)
+            self._fg_stamp = time.monotonic()
+            future = self._fetching = self._submit(self._fg, self._fetch_task, name, z)
         return future
 
     # prefetch: open a tomogram, read its middle slices and warm the page cache for the rest of the file
@@ -154,6 +160,27 @@ class Loader:
             _, dropped = self._slices.popitem(last=False)
             self._bytes -= dropped.nbytes
 
+    # _fetch_task: read a slice for the viewer, counted so read-ahead can stand aside while it runs
+    def _fetch_task(self, name: str, z: int) -> np.ndarray:
+        with self._lock:
+            self._fg_running += 1
+        try:
+            return self.slice(name, z)
+        finally:
+            with self._lock:
+                self._fg_running -= 1
+                self._fg_stamp = time.monotonic()
+
+    # _wait_idle: wait until no slice is being read for the viewer (and none was for grace seconds); False if stale() says the work is no longer wanted
+    def _wait_idle(self, stale: Callable[[], bool], grace: float) -> bool:
+        while not stale():
+            with self._lock:
+                idle = self._fg_running == 0 and time.monotonic() - self._fg_stamp >= grace
+            if idle:
+                return True
+            time.sleep(0.02)
+        return False
+
     # _tomo: the tomogram record for a name
     def _tomo(self, name: str) -> Tomogram:
         return self.project.tomos[name]
@@ -192,16 +219,26 @@ class Loader:
         self.slice(name, opened.vol.shape[0] // 2)
         self._warm_file(volume_path(self._tomo(name), source=self.project.config.source), generation)
 
-    # _warm_around: read the slices warm_order gives, until a newer warm_around starts
+    # _warm_around: read the nearby slices warm_order gives, then the rest of the tomogram outwards from z while it fits the cache and the viewer is idle; a newer warm_around stops it
     def _warm_around(self, name: str, z: int, generation: int, sign: int, ahead: int, behind: int) -> None:
-        depth = self.open(name).result().vol.shape[0]
-        for zi in warm_order(z, depth, sign=sign, ahead=ahead, behind=behind):
-            if self._near_generation != generation:
+        vol = self.open(name).result().vol
+        depth, plane = vol.shape[0], vol[0].nbytes
+        stale = lambda: self._near_generation != generation
+        near = warm_order(z, depth, sign=sign, ahead=ahead, behind=behind)
+        for zi in near:
+            if not self._wait_idle(stale, 0.0):
+                return
+            self.slice(name, zi)
+        for zi in warm_order(z, depth, sign=sign, ahead=depth, behind=depth):
+            if zi in near:
+                continue
+            if self._bytes + plane > self.cache_bytes or not self._wait_idle(stale, _IDLE_S):
                 return
             self.slice(name, zi)
 
     # _warm_file: read a file sequentially so its pages are in the operating system cache; stops when a newer prefetch starts
     def _warm_file(self, path: Path, generation: int) -> None:
         with timed(f'warm {path.name}'), open(path, 'rb') as handle:
-            while self._warm_generation == generation and handle.read(_WARM_CHUNK):
+            stale = lambda: self._warm_generation != generation
+            while self._wait_idle(stale, _IDLE_S) and handle.read(_WARM_CHUNK):
                 pass
