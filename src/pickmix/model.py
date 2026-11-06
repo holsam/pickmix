@@ -10,6 +10,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 # Import internal pickmix objects
+from pickmix.candidates import CandidateStore
 from pickmix.project import Project
 
 # Pick: one hand-picked centre; x, y, z in reconstruction voxels; id lives for the session only
@@ -136,12 +137,13 @@ class PickStore:
         for listener in self.listeners:
             listener()
 
-# Session: the store plus which tomogram is shown; navigation clamps and never wraps
+# Session: pick & candidate stores and which tomogram is shown; navigation clamps and never wraps
 class Session:
     # __init__: resume at the tomogram shown last time if it is still usable
     def __init__(self, project: Project) -> None:
         self.project = project
         self.store = PickStore(project)
+        self.candidates = CandidateStore(project)
         self.names = list(project.tomos)
         self.progress_path = project.config.out_dir / 'progress.json'
         self.goto_listeners: list[Callable[[], None]] = []
@@ -150,16 +152,28 @@ class Session:
         self.index = self.names.index(saved.last) if saved.last in self.names else 0
         if self.names:
             self._remember()
+            # don't include seen tomograms in template matching candidates
+            self.candidates.prune(self.visited - {self.current})
+
+    # accept: turn candidates into picks of their kind, at the candidate's position
+    def accept(self, *candidate_ids: int) -> list[Pick]:
+        found = [self.candidates.get(i) for i in candidate_ids]
+        picks = [self.store.add(c.tomogram, c.kind, c.x, c.y, c.z) for c in found if c.kind in self.project.config.kinds]
+        self.candidates.remove(*candidate_ids)
+        return picks
 
     # current: name of the tomogram shown
     @property
     def current(self) -> str:
         return self.names[self.index]
 
-    # go: show tomogram i, clamped; saves progress and notifies
+    # go: show tomogram i, clamped; saves progress, forgets the candidates of the tomogram left, and notifies
     def go(self, i: int) -> None:
+        left = self.current
         self.index = min(max(i, 0), len(self.names) - 1)
         self._remember()
+        if left != self.current:
+            self.candidates.prune([left])
         for listener in self.goto_listeners:
             listener()
 

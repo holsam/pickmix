@@ -16,6 +16,7 @@ from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.gui.tabs.project_tab import ProjectTab
 from pickmix.gui.tabs.review_tab import ReviewTab
 from pickmix.loader import Loader
+from pickmix.matcher import MatchService
 from pickmix.model import Session
 from pickmix.project import Project
 
@@ -39,6 +40,7 @@ class MainWindow(QMainWindow):
         self.session: Session | None = None
         self.loader: Loader | None = None
         self.service: EstimateService | None = None
+        self.matcher: MatchService | None = None
         self.tabs = QTabWidget()
         self.project_tab = ProjectTab()
         self.kinds_pane = self.project_tab.kinds_pane
@@ -70,6 +72,7 @@ class MainWindow(QMainWindow):
         self.toast = install(self)
         for i in range(1, 10):
             QShortcut(QKeySequence(str(i)), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(lambda i=i: self._hotkey(i - 1))
+        QShortcut(QKeySequence('A'), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(self._accept_candidate)
         for key in ('Delete', 'Backspace'):
             QShortcut(QKeySequence(key), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(self._delete_pick)
         self.resize(*WELCOME_SIZE)
@@ -106,6 +109,11 @@ class MainWindow(QMainWindow):
     def _hotkey(self, i: int) -> None:
         if self._picking():
             self.pick_tab.pick_kind(i)
+
+    # _accept_candidate: A converts selected candidate to pick
+    def _accept_candidate(self) -> None:
+        if self._picking():
+            self.pick_tab.accept_selected()
 
     # _delete_pick: Delete or Backspace removes the selected pick, from wherever focus is
     def _delete_pick(self) -> None:
@@ -162,12 +170,13 @@ class MainWindow(QMainWindow):
         if project.tomos:
             self.session, self.loader = Session(project), Loader(project)
             self.service = EstimateService(self.session, self.loader)
-            self.pick_tab.set_session(self.session, self.loader, self.service)
+            self.matcher = MatchService(self.session, self.service.store)
+            self.pick_tab.set_session(self.session, self.loader, self.service, self.matcher)
             self.review_tab.set_session(self.session, self.loader, self.service)
             self.export_tab.set_session(self.session, self.loader, self.service)
             self.kinds_pane.set_session(self.session, self.service)
         else:
-            self.session = self.loader = self.service = None
+            self.session = self.loader = self.service = self.matcher = None
             self.kinds_pane.set_session(None, None)
             self.export_tab.clear()
         self._set_enabled(session=self.session is not None)
@@ -176,9 +185,11 @@ class MainWindow(QMainWindow):
     def _shutdown(self) -> None:
         if self.service is not None:
             self.service.shutdown()
+        if self.matcher is not None:
+            self.matcher.shutdown()
         if self.loader is not None:
             self.loader.shutdown()
-        self.session = self.loader = self.service = None
+        self.session = self.loader = self.service = self.matcher = None
 
     # _on_closed: no project; lock everything but the Project tab
     def _on_closed(self) -> None:

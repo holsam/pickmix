@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QLineEdit
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
+from pickmix.candidates import Hit
 from pickmix.config import Kind
 from pickmix.gui.main_window import PROJECT_SIZE, WELCOME_SIZE, MainWindow
 from pickmix.project import open_project
@@ -58,7 +59,6 @@ class TestMainWindow:
         assert window.tabs.isTabEnabled(0) and not any(window.tabs.isTabEnabled(i) for i in (1, 2, 3))
         assert window.kinds_pane.kind_names() == ['cage']
 
-
     # test_review_tab_wired: the Review tab is built for an opened project and opening a pick switches tabs
     def test_review_tab_wired(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         window = MainWindow()
@@ -79,6 +79,23 @@ class TestMainWindow:
         assert window.export_tab.average.kind_box.count() == 1
         window.service.shutdown()
         window.loader.shutdown()
+
+    # test_matcher_wired: the Pick tab gets a match service, A accepts the selected candidate, and closing the project stops the service
+    def test_matcher_wired(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        window = MainWindow()
+        qtbot.addWidget(window)
+        window.project_tab.set_project(open_project(make_config()))
+        matcher = window.matcher
+        assert matcher is not None and window.pick_tab.matcher is matcher and window.pick_tab.match_pane.matcher is matcher
+        window.tabs.setCurrentWidget(window.pick_tab)
+        qtbot.waitUntil(lambda: window.pick_tab.canvas.has_image, timeout=5000)
+        window.session.candidates.replace('Position_1_2', 'cage', [Hit(2, 2, 1, 0.6)], reach=1)
+        qtbot.waitUntil(lambda: window.pick_tab.canvas.marker_ids() == [-1], timeout=5000)
+        window.pick_tab._clicked(-1)
+        window._accept_candidate()
+        assert window.session.store.total('cage') == 1
+        window.project_tab.close_button.click()
+        assert window.matcher is None and matcher._closed
 
     # test_close_project: closing re-locks the other tabs and drops the session
     def test_close_project(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
@@ -208,7 +225,7 @@ class TestMainWindow:
         window = MainWindow()
         qtbot.addWidget(window)
         keys = {s.key().toString(): s for s in window.findChildren(QShortcut)}
-        assert all(str(i) in keys for i in range(1, 10)) and 'Del' in keys and 'Backspace' in keys
+        assert all(str(i) in keys for i in range(1, 10)) and 'Del' in keys and 'Backspace' in keys and 'A' in keys
         assert all(s.context() == Qt.ShortcutContext.WindowShortcut for s in keys.values())
 
     # test_hotkey_and_delete_from_other_focus: with focus off the canvas, a hotkey still picks the kind and delete still removes the pick

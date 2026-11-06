@@ -16,11 +16,13 @@ from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.range_slider import RangeSlider
-from pickmix.gui.components.status import StatusBadge, fit_status
+from pickmix.gui.components.status import StatusBadge, fit_status, status_item
+from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
+from pickmix.gui.style import CELL_PADDING, bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
 from pickmix.loader import Loader, Opened
+from pickmix.matcher import MatchService
 from pickmix.model import Session
 from pickmix.timing import Timer
 
@@ -35,6 +37,7 @@ class PickTab(QWidget):
         self.session: Session | None = None
         self.loader: Loader | None = None
         self.service: EstimateService | None = None
+        self.matcher: MatchService | None = None
         self._want_select: int | None = None
         self._matched: dict[str, dict[int, Parent]] = {}
         self.opened: Opened | None = None
@@ -50,6 +53,7 @@ class PickTab(QWidget):
         self.title = title()
         self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram.')
         self.status = QLabel()
+        self.match_pane = MatchPane()
         self.tomo = TomoPane()
         self.tomo.setMinimumWidth(200)
         self.tomo_toggle = icon_button('left_panel_close', '<', 'Hide the tomogram list', size=20)
@@ -85,7 +89,8 @@ class PickTab(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setColumnWidth(0, 28)
+        # 16px icon plus the cell padding either side, or a status item's icon is clipped
+        self.table.setColumnWidth(0, 16 + 2 * CELL_PADDING)
         self.delete_button = icon_button('delete', 'Delete', 'Delete the selected pick (Delete)')
         self.delete_button.setEnabled(False)
         for button in (self.fit_button, self.fill_button, self.delete_button):
@@ -117,6 +122,7 @@ class PickTab(QWidget):
         settings_layout.addWidget(image)
         settings_layout.addWidget(view)
         settings_layout.addWidget(kinds)
+        settings_layout.addWidget(self.match_pane)
         settings_layout.addStretch()
         # vertical Z scrollbar between the canvas and the settings
         z_column = QVBoxLayout()
@@ -179,11 +185,22 @@ class PickTab(QWidget):
         self.canvas.marker_clicked.connect(self._clicked)
         self.canvas.z_scrolled.connect(lambda steps: self.z_slider.setValue(self.z_slider.value() + steps))
         self.table.cellClicked.connect(self._row_clicked)
+        self.match_pane.scan_requested.connect(self._scan)
+        self.match_pane.stop_requested.connect(self._stop_scan)
+        self.match_pane.accept_requested.connect(self.accept_selected)
+        self.match_pane.reject_requested.connect(self.delete_selected)
+        self.match_pane.accept_all_requested.connect(self.accept_shown)
+        self.match_pane.threshold_changed.connect(self._on_picks)
 
     # set_session: show a session and follow its picks and navigation
-    def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
-        self.session, self.loader, self.service = session, loader, service
+    def set_session(self, session: Session, loader: Loader, service: EstimateService, matcher: MatchService | None = None) -> None:
+        self.session, self.loader, self.service, self.matcher = session, loader, service, matcher
+        self.match_pane.set_matcher(matcher, session.project.config.match.min_score)
         session.store.listeners.append(self._on_picks)
+        # candidates and scan progress arrive on the scanning thread
+        session.candidates.listeners.append(lambda: post(self._on_picks))
+        if matcher is not None:
+            matcher.listeners.append(lambda: post(self._on_picks))
         # estimates arrive on the service's thread
         service.store.listeners.append(lambda: post(self._on_picks))
         session.goto_listeners.append(self._on_goto)
@@ -267,15 +284,53 @@ class PickTab(QWidget):
             self.tomo_toggle.setIcon(panel)
         self.tomo_toggle.setToolTip('Hide the tomogram list' if shown else 'Show the tomogram list')
 
-    # delete_selected: remove the selected pick
+    # delete_selected: remove selected pick or reject selected candidate
     def delete_selected(self) -> None:
-        if self.session is not None and self.canvas.selected_id is not None:
+        if self.session is None or self.canvas.selected_id is None:
+            return
+        if self.canvas.selected_id < 0:
+            self.session.candidates.reject(-self.canvas.selected_id)
+        else:
             self.session.store.remove(self.canvas.selected_id)
+
+    # accept_selected: convert selected candidate into pick
+    def accept_selected(self) -> None:
+        if self.session is None or self.canvas.selected_id is None or self.canvas.selected_id >= 0:
+            return
+        picks = self.session.accept(-self.canvas.selected_id)
+        if picks:
+            self._select(picks[0].id)
+
+    # accept_shown: convert all candidates of kind in tomogram to picks
+    def accept_shown(self) -> None:
+        if self.session is not None and self.active is not None:
+            found = self.session.candidates.candidates(self.session.current, self.active, min_score=self.match_pane.min_score())
+            if found:
+                self.session.accept(*(c.id for c in found))
 
     # _set_active: kind new picks are made as
     def _set_active(self, name: str) -> None:
         self.active = name
         self.kind_buttons[name].setChecked(True)
+        self._refresh_match()
+
+    # _scan: scan for active kind's template in every tomogram
+    def _scan(self) -> None:
+        if self.matcher is not None and self.active is not None:
+            self.matcher.start(self.active)
+
+    # _stop_scan: end matching scan
+    def _stop_scan(self) -> None:
+        if self.matcher is not None:
+            self.matcher.stop()
+
+    # _refresh_match: refresh match pane for active kind/tomogram
+    def _refresh_match(self) -> None:
+        if self.session is None:
+            return
+        kind, current = self.active, self.session.current
+        shown = len(self.session.candidates.candidates(current, kind, min_score=self.match_pane.min_score())) if kind else 0
+        self.match_pane.refresh(kind=kind, picks=self.session.store.total(kind) if kind else 0, shown=shown, total=self.session.candidates.count(kind) if kind else 0, selected=self.canvas.selected_id is not None and self.canvas.selected_id < 0)
 
     # pick_kind: choose the kind on the i-th hotkey
     def pick_kind(self, i: int) -> None:
@@ -471,25 +526,35 @@ class PickTab(QWidget):
                 continue
             for p in self.session.store.picks(name, kind_name):
                 fit = self.service.store.get(p) if self.service else None
-                view = None if fit is None else FitView(
-                    fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' else None,
-                    fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi,
-                )
+                view = None if fit is None else FitView(fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' else None, fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi)
                 parent = self._matched.get(kind_name, {}).get(p.id)
                 unmatched = kind.parent is not None and fit is not None and parent is None
                 normal = None if parent is None else (parent.normal[0], parent.normal[1])
                 out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag) or unmatched, view, normal))
+            for c in self.session.candidates.candidates(name, kind_name, min_score=self.match_pane.min_score()):
+                out.append(Marker(-c.id, c.x, c.y, c.z, kind.marker_a / 2 / px, kind.colour, candidate=True, tip=f'{kind_name} candidate, score {c.score:.2f}'))
         return out
 
-    # _fill_table: the current tomogram's picks of known kinds, each with its estimate status, and the selected one highlighted
+    # _fill_table: the current tomogram's picks of known kinds, each with its estimate status, then its shown candidates in italics with their score (negative ids); the selected row highlighted
     def _fill_table(self) -> None:
         assert self.session is not None
         name = self.session.current
         kinds = self.session.project.config.kinds
         picks = [p for k in kinds for p in self.session.store.picks(name, k)]
         self._matched = self._match()
-        self._row_ids = [p.id for p in picks]
-        self.table.setRowCount(len(picks))
+        candidates = [c for k in kinds if k not in self.hidden for c in self.session.candidates.candidates(name, k, min_score=self.match_pane.min_score())]
+        self._row_ids = [p.id for p in picks] + [-c.id for c in candidates]
+        self.table.setRowCount(len(self._row_ids))
+        for r, c in enumerate(candidates, start=len(picks)):
+            # an item, not a cell widget: a replaced cell widget can be left with no width
+            self.table.removeCellWidget(r, 0)
+            self.table.setItem(r, 0, status_item('match', f'Template match candidate, score {c.score:.2f}'))
+            for col, text in enumerate((c.kind, f'{c.x:.1f}', f'{c.y:.1f}', f'{c.z:.1f}', '', f'score {c.score:.2f}'), start=1):
+                item = QTableWidgetItem(text)
+                font = item.font()
+                font.setItalic(True)
+                item.setFont(font)
+                self.table.setItem(r, col, item)
         for r, p in enumerate(picks):
             fit = self.service.store.get(p) if self.service else None
             snr, flag = ('', '') if fit is None else (f'{fit.snr:.2f}', fit.flag)
@@ -514,6 +579,7 @@ class PickTab(QWidget):
     # _sync_delete: Delete is only live while a pick is selected
     def _sync_delete(self) -> None:
         self.delete_button.setEnabled(self.canvas.selected_id is not None)
+        self._refresh_match()
 
     # _add: new pick of the active kind on the current slice
     def _add(self, x: float, y: float) -> None:
@@ -528,11 +594,12 @@ class PickTab(QWidget):
             self.session.store.move(pick_id, x, y)
             self._select(pick_id)
 
-    # _clicked: pick selected on the canvas; show the slice it was picked on
+    # _clicked: pick or candidate (negative id) selected on canvas; show the slice it's on
     def _clicked(self, pick_id: int) -> None:
         assert self.session is not None
         self._select(pick_id)
-        self.z_slider.setValue(round(self.session.store.get(pick_id).z))
+        z = self.session.candidates.get(-pick_id).z if pick_id < 0 else self.session.store.get(pick_id).z
+        self.z_slider.setValue(round(z))
 
     # _row_clicked: pick chosen in the list
     def _row_clicked(self, row: int, _col: int) -> None:

@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
-from pickmix.config import HOTKEYS, Config, RingParams
+from pickmix.config import HOTKEYS, Config, MatchParams, RingParams
 from pickmix.gui.components.collapsible import Collapsible
 from pickmix.gui.components.toast import notify
 from pickmix.gui.style import form_label, heading
@@ -86,6 +86,7 @@ class SettingsPane(QWidget):
         self.cache_spin.setKeyboardTracking(False)
         self.hotkey_boxes = [QComboBox() for _ in range(HOTKEYS)]
         self.ring_form = ParamsForm(RingParams())
+        self.match_form = ParamsForm(MatchParams())
         general = QGroupBox('General')
         form = QFormLayout(general)
         form.addRow('Volume source', self.source_box)
@@ -98,16 +99,22 @@ class SettingsPane(QWidget):
         estimator_box = QVBoxLayout(estimators)
         self.ring_section = Collapsible('Ring', self.ring_form)
         estimator_box.addWidget(self.ring_section)
-        self.setMinimumWidth(self.ring_form.sizeHint().width() + 48)
+        matching = QGroupBox('Template matching')
+        matching_box = QVBoxLayout(matching)
+        self.match_section = Collapsible('Scan', self.match_form)
+        matching_box.addWidget(self.match_section)
+        self.setMinimumWidth(max(self.ring_form.sizeHint().width(), self.match_form.sizeHint().width()) + 48)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(heading('Settings'))
         layout.addWidget(general)
         layout.addWidget(estimators)
+        layout.addWidget(matching)
         layout.addStretch()
         self.source_box.currentTextChanged.connect(self._save)
         self.cache_spin.valueChanged.connect(self._save)
         self.ring_form.changed.connect(self._save)
+        self.match_form.changed.connect(self._save)
 
     # set_project: show a project's settings without saving them back
     def set_project(self, project: Project) -> None:
@@ -116,6 +123,7 @@ class SettingsPane(QWidget):
         self.source_box.setCurrentText(project.config.source)
         self.cache_spin.setValue(project.config.cache_mb)
         self.ring_form.set(project.config.ring)
+        self.match_form.set(project.config.match)
         self._loading = False
         self.refresh_hotkeys()
 
@@ -131,12 +139,12 @@ class SettingsPane(QWidget):
             box.setCurrentText(chosen or NO_KIND)
         self._loading = False
 
-    # _save: write source, slice cache and ring parameters; a value the config refuses is not written
+    # _save: write source, slice cache and ring & match parameters; a value the config refuses is not written
     def _save(self) -> None:
         if self._loading or self.project is None:
             return
         try:
-            self.project.update(source=self.source_box.currentText(), cache_mb=self.cache_spin.value(), ring=self.ring_form.get())
+            self.project.update(source=self.source_box.currentText(), cache_mb=self.cache_spin.value(), ring=self.ring_form.get(), match=self.match_form.get())
         except ValidationError as e:
             notify(f'Not saved: {e.errors()[0]["msg"]}')
             return

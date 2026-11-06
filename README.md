@@ -57,6 +57,9 @@ Open the Pick tab. To the left is a a list of tomograms in the project, clicking
 
 ![Pick tab](docs/images/pick-tab.png)
 
+#### 3.1 Template matching
+Once several picks exist for a kind, the Match group within the settings pane can be used to identify potential candidates. Click `Scan` to generate an average pick and search unvisited tomograms for matches, which will appear as dotted markers on tomograms and in the pick table with a blue status icon. Click a candidate to select it, then press either `Accept` (or hotkey `a`) to convert it into a pick, or `Reject` (or either hotkey `delete`/`backspace`) to hide it. Currently this search is not rotation aware, so best suits symmetric particles. Setting for template matching can be edited in the project tab within the settings tab.
+
 ### 4. Review
 
 Open the Review tab. Picks can be filtered by kind, tomogram, minimum SNR and whether they were flagged, with options to delete the selected pick or all currently shown. All picks can be queued for re-estimation here if required as well. Single-click a pick to view XY/XZ/YZ previews, or double-click to open that pick in the Pick tab.
@@ -76,5 +79,5 @@ project/
   config.toml        settings and kinds
   tomograms.star     merged RELION tomogram table
   tilt_series/       one star file per tomogram
-  out/               picks, estimates, averages, RELION & .csv exports
+  out/               picks, candidates, estimates, averages, RELION & .csv exports
 ```

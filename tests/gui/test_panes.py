@@ -358,6 +358,22 @@ class TestSettingsPane:
         config = load_config(path)
         assert config.ring.radius_step_a == 50.0 and config.ring.radius_range_a == (150.0, 500.0)
 
+    # test_match_value_autosaves: a committed match setting is written, the others are kept
+    def test_match_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        assert pane.match_form.get().min_score == 0.2 and pane.match_form.isHidden()
+        with qtbot.waitSignal(pane.config_saved):
+            pane.match_form._boxes['min_score'][0].setValue(0.35)
+        config = load_config(path)
+        assert config.match.min_score == 0.35 and config.match.template_px == 32
+
+    # test_match_value_refused: a match setting the config refuses is not written
+    def test_match_value_refused(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        with qtbot.assertNotEmitted(pane.config_saved):
+            pane.match_form._boxes['min_score'][0].setValue(1.5)
+        assert load_config(path).match.min_score == 0.2
+
     # test_no_save_button: there is nothing to press
     def test_no_save_button(self, qtbot: QtBot) -> None:
         pane = SettingsPane()

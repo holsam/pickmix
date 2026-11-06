@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 # Import internal pickmix objects
-from pickmix.config import Config, Kind, RingParams, load_config, save_config
+from pickmix.config import Config, Kind, MatchParams, RingParams, load_config, save_config
 
 # _config: a config with absolute paths, so it survives a save and load unchanged, and the given kinds
 def _config(**kinds: Kind) -> Config:
@@ -71,6 +71,16 @@ class TestConfig:
     def test_ring_params_documented(self) -> None:
         for name, field in RingParams.model_fields.items():
             assert field.title and field.description, name
+
+    # test_match_params_documented: every match setting has a title and a description for the settings form
+    def test_match_params_documented(self) -> None:
+        assert all(f.title and f.description for f in MatchParams.model_fields.values())
+
+    # test_match_round_trip: match settings survive a save and load
+    def test_match_round_trip(self, tmp_path: Path) -> None:
+        config = _config().replace(match=MatchParams(template_px=24, min_score=0.3))
+        save_config(config, tmp_path / 'config.toml')
+        assert load_config(tmp_path / 'config.toml').match == MatchParams(template_px=24, min_score=0.3)
 
     # test_default_hotkeys: no hotkeys means the first nine kinds in table order, padded with unused keys
     def test_default_hotkeys(self) -> None:
