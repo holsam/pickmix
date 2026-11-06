@@ -6,6 +6,7 @@ pickmix: Pick tab
 import numpy as np
 from concurrent.futures import Future
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QFormLayout, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
     QScrollBar, QSlider, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget,
@@ -51,7 +52,7 @@ class PickTab(QWidget):
         self._range = (0.0, 1.0)
         self.canvas = SliceCanvas()
         self.title = title()
-        self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram.')
+        self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram. Up/Down: change Z slice; Shift+Up/Down: change Z slice by 10.')
         self.status = QLabel()
         self.match_pane = MatchPane()
         self.tomo = TomoPane()
@@ -184,6 +185,8 @@ class PickTab(QWidget):
         self.canvas.move_requested.connect(self._move)
         self.canvas.marker_clicked.connect(self._clicked)
         self.canvas.z_scrolled.connect(lambda steps: self.z_slider.setValue(self.z_slider.value() + steps))
+        for keys, step in (('Up', 1), ('Down', -1), ('Shift+Up', 10), ('Shift+Down', -10)):
+            QShortcut(QKeySequence(keys), self, context=Qt.ShortcutContext.WidgetWithChildrenShortcut).activated.connect(lambda step=step: self._step_z(step))
         self.table.cellClicked.connect(self._row_clicked)
         self.match_pane.scan_requested.connect(self._scan)
         self.match_pane.stop_requested.connect(self._stop_scan)
@@ -395,6 +398,10 @@ class PickTab(QWidget):
             self._clicked(wanted)
         if self.session.index + 1 < len(self.session.names):
             self.loader.prefetch(self.session.names[self.session.index + 1])
+
+    # _step_z: move the slice by steps
+    def _step_z(self, steps: int) -> None:
+        self.z_slider.setValue(self.z_slider.value() + steps)
 
     # _show_z: show slice z, from the cache or after reading it in the background
     def _show_z(self, z: int) -> None:

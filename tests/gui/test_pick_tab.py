@@ -108,6 +108,51 @@ class TestPickTab:
         tab.canvas.z_scrolled.emit(-9)
         assert tab.z == 0
 
+    # test_arrow_keys_scroll_z: Up and Down move one slice and Shift ten, clamped to the tomogram
+    def test_arrow_keys_scroll_z(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        tab.show()
+        qtbot.waitExposed(tab)
+        tab.activateWindow()
+        qtbot.waitUntil(tab.isActiveWindow, timeout=3000)
+        tab.canvas.setFocus()
+        qtbot.keyClick(tab.canvas, Qt.Key.Key_Down)
+        assert tab.z == 1
+        qtbot.keyClick(tab.canvas, Qt.Key.Key_Up)
+        qtbot.keyClick(tab.canvas, Qt.Key.Key_Up)
+        assert tab.z == 3
+        qtbot.keyClick(tab.canvas, Qt.Key.Key_Up)
+        assert tab.z == 3
+        qtbot.keyClick(tab.canvas, Qt.Key.Key_Down, Qt.KeyboardModifier.ShiftModifier)
+        assert tab.z == 0
+
+    # test_arrow_keys_from_table: arrows scroll z even when the pick table has focus
+    def test_arrow_keys_from_table(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        tab.pick_kind(0)
+        tab._add(1.0, 1.0)
+        tab.show()
+        qtbot.waitExposed(tab)
+        tab.activateWindow()
+        qtbot.waitUntil(tab.isActiveWindow, timeout=3000)
+        tab.table.setFocus()
+        before = tab.z
+        qtbot.keyClick(tab.table, Qt.Key.Key_Up)
+        assert tab.z == before + 1
+        assert session.store.total() == 1
+
+    # test_arrow_keys_leave_contrast_slider: Up and Down still switch the active handle of the contrast slider
+    def test_arrow_keys_leave_contrast_slider(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, _ = setup()
+        tab.show()
+        qtbot.waitExposed(tab)
+        tab.activateWindow()
+        qtbot.waitUntil(tab.isActiveWindow, timeout=3000)
+        tab.contrast.setFocus()
+        before = tab.z
+        qtbot.keyClick(tab.contrast, Qt.Key.Key_Up)
+        assert tab.z == before
+
     # test_delete_needs_selection: Delete is greyed until a pick is selected and again once it is gone
     def test_delete_needs_selection(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, _ = setup()

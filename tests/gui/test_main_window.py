@@ -226,7 +226,8 @@ class TestMainWindow:
         qtbot.addWidget(window)
         keys = {s.key().toString(): s for s in window.findChildren(QShortcut)}
         assert all(str(i) in keys for i in range(1, 10)) and 'Del' in keys and 'Backspace' in keys and 'A' in keys
-        assert all(s.context() == Qt.ShortcutContext.WindowShortcut for s in keys.values())
+        wanted = [*(str(i) for i in range(1, 10)), 'Del', 'Backspace', 'A']
+        assert all(keys[k].context() == Qt.ShortcutContext.WindowShortcut for k in wanted)
 
     # test_hotkey_and_delete_from_other_focus: with focus off the canvas, a hotkey still picks the kind and delete still removes the pick
     def test_hotkey_and_delete_from_other_focus(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
