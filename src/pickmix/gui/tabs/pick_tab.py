@@ -16,7 +16,7 @@ from pickmix.estimates import EstimateService
 from pickmix.geometry import Parent, match_parents
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.range_slider import RangeSlider
-from pickmix.gui.components.status import StatusBadge, fit_status
+from pickmix.gui.components.status import StatusBadge, fit_status, status_item
 from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
@@ -534,15 +534,26 @@ class PickTab(QWidget):
                 out.append(Marker(-c.id, c.x, c.y, c.z, kind.marker_a / 2 / px, kind.colour, candidate=True, tip=f'{kind_name} candidate, score {c.score:.2f}'))
         return out
 
-    # _fill_table: the current tomogram's picks of known kinds, each with its estimate status, and the selected one highlighted
+    # _fill_table: the current tomogram's picks of known kinds, each with its estimate status, then its shown candidates in italics with their score (negative ids); the selected row highlighted
     def _fill_table(self) -> None:
         assert self.session is not None
         name = self.session.current
         kinds = self.session.project.config.kinds
         picks = [p for k in kinds for p in self.session.store.picks(name, k)]
         self._matched = self._match()
-        self._row_ids = [p.id for p in picks]
-        self.table.setRowCount(len(picks))
+        candidates = [c for k in kinds if k not in self.hidden for c in self.session.candidates.candidates(name, k, min_score=self.match_pane.min_score())]
+        self._row_ids = [p.id for p in picks] + [-c.id for c in candidates]
+        self.table.setRowCount(len(self._row_ids))
+        for r, c in enumerate(candidates, start=len(picks)):
+            # an item, not a cell widget: a replaced cell widget can be left with no width
+            self.table.removeCellWidget(r, 0)
+            self.table.setItem(r, 0, status_item('match', f'Template match candidate, score {c.score:.2f}'))
+            for col, text in enumerate((c.kind, f'{c.x:.1f}', f'{c.y:.1f}', f'{c.z:.1f}', '', f'score {c.score:.2f}'), start=1):
+                item = QTableWidgetItem(text)
+                font = item.font()
+                font.setItalic(True)
+                item.setFont(font)
+                self.table.setItem(r, col, item)
         for r, p in enumerate(picks):
             fit = self.service.store.get(p) if self.service else None
             snr, flag = ('', '') if fit is None else (f'{fit.snr:.2f}', fit.flag)

@@ -12,8 +12,8 @@ from PySide6.QtWidgets import QLabel, QTableWidgetItem
 from pickmix.gui.components.icons import tinted
 from pickmix.gui.style import ERROR, OK, RUNNING, WARN
 
-# Status: ok is a green tick, warn a yellow warning sign, error a red error sign, running a blue spinner
-type Status = Literal['ok', 'warn', 'error', 'running']
+# Status: ok is a green tick, warn a yellow warning sign, error a red error sign, running a blue spinner, match a blue image search for a template match candidate
+type Status = Literal['ok', 'warn', 'error', 'running', 'match']
 
 # STATUS_STYLE: icon stem, colour and the text used when the icon file is missing
 STATUS_STYLE: dict[Status, tuple[str, str, str]] = {
@@ -21,6 +21,7 @@ STATUS_STYLE: dict[Status, tuple[str, str, str]] = {
     'warn': ('warning', WARN, '!'),
     'error': ('error', ERROR, '✖'),
     'running': ('refresh', RUNNING, '…'),
+    'match': ('image_search', RUNNING, 'tm'),
 }
 
 # _SIZE: edge in pixels of a status icon
