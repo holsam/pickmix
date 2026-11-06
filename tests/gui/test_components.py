@@ -12,7 +12,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
-from pickmix.gui.components.images import FitLabel, label_cells, tile_cells, label_image, to_image, to_pixmap
+from pickmix.gui.components.images import FitLabel, draw_box, label_cells, tile_cells, label_image, to_image, to_pixmap
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, fit_status, status_item
 from pickmix.gui.components.toast import notify
@@ -260,6 +260,23 @@ class TestImages:
         assert wide.pixelColor(60, 60) != QColor('#141414') and wide.pixelColor(540, 60) != QColor('#141414')
         tall = tile_cells(base, ['a'] * 5, grid, pad, 120, 600)
         assert tall.pixelColor(60, 60) != QColor('#141414') and tall.pixelColor(60, 540) != QColor('#141414')
+
+    # test_outline_scaled: the rectangle is drawn at the array position times the scale, and the original is untouched
+    def test_outline_scaled(self) -> None:
+        base = QPixmap(100, 100)
+        base.fill(QColor('black'))
+        out = draw_box(base, (10, 20, 30, 40), 2.0, 'red')
+        image = out.toImage()
+        assert image.pixelColor(20, 40) == QColor('red') and image.pixelColor(60, 60) == QColor('red') and image.pixelColor(40, 60) == QColor('black')
+        assert base.toImage().pixelColor(20, 40) == QColor('black')
+
+    # test_dotted_skips_pixels: a dotted outline leaves gaps along an edge
+    def test_dotted_skips_pixels(self) -> None:
+        base = QPixmap(100, 100)
+        base.fill(QColor('black'))
+        image = draw_box(base, (10, 10, 90, 50), 1.0, 'red', dotted=True).toImage()
+        edge = [image.pixelColor(x, 10) == QColor('red') for x in range(10, 90)]
+        assert any(edge) and not all(edge)
 
 # TestRangeSlider: two-handle slider
 class TestRangeSlider:
