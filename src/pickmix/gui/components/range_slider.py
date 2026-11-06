@@ -4,7 +4,7 @@ pickmix: slider with two handles for a low and a high value
 
 # Import external dependencies
 from typing import Literal
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -49,6 +49,13 @@ class RangeSlider(QWidget):
         self.update()
         if changed and emit:
             self.valueChanged.emit(low, high)
+
+    # event: claim up and down keys before a window shortcut can
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.ShortcutOverride and isinstance(event, QKeyEvent) and event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            event.accept()
+            return True
+        return super().event(event)
 
     # keyPressEvent: Left and Right move the active handle, Up and Down switch handle, PageUp and PageDown move by a tenth
     def keyPressEvent(self, event: QKeyEvent) -> None:
