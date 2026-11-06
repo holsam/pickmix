@@ -108,6 +108,16 @@ class CandidateStore:
             self._items = {i: c for i, c in self._items.items() if kind is not None and c.kind != kind}
         self._changed()
 
+    # prune: forget every candidate for a tomogram
+    def prune(self, tomograms: Iterable[str]) -> None:
+        gone = set(tomograms)
+        with self._lock:
+            kept = {i: c for i, c in self._items.items() if c.tomogram not in gone}
+            changed = len(kept) != len(self._items)
+            self._items = kept
+        if changed:
+            self._changed()
+
     # rename_kind: move every candidate of a kind to a new name
     def rename_kind(self, old: str, new: str) -> None:
         with self._lock:

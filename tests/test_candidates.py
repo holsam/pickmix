@@ -15,6 +15,9 @@ from pickmix.project import open_project
 # NAME: the single tomogram of the fixture project
 NAME: str = 'Position_1_2'
 
+# THREE: three tomograms for navigation tests
+THREE: tuple[str, ...] = ('Position_1_2', 'Position_1_3', 'Other_9')
+
 # _store: a store over a fresh project
 def _store(make_config: Callable[..., Path]) -> CandidateStore:
     return CandidateStore(open_project(make_config()))
@@ -83,3 +86,38 @@ class TestCandidates:
         session = Session(open_project(make_config()))
         session.candidates.replace(NAME, 'gone', [Hit(1, 2, 3, 0.5)], reach=2)
         assert session.accept(session.candidates.candidates(NAME)[0].id) == [] and session.store.total() == 0
+
+    # test_prune: every candidate in the given tomograms goes, rejected ones too, and listeners hear it once
+    def test_prune(self, make_config: Callable[..., Path]) -> None:
+        store = CandidateStore(open_project(make_config(names=THREE)))
+        store.replace(THREE[0], 'cage', [Hit(1, 1, 1, 0.3), Hit(6, 6, 1, 0.4)], reach=2)
+        store.reject(store.candidates(THREE[0])[0].id)
+        store.replace(THREE[1], 'cage', [Hit(2, 2, 2, 0.5)], reach=2)
+        heard: list[int] = []
+        store.listeners.append(lambda: heard.append(1))
+        store.prune([THREE[0]])
+        store.prune([THREE[2]])
+        assert store.candidates(THREE[0]) == [] and store.count('cage') == 1 and heard == [1]
+        assert len(CandidateStore(store.project)._items) == 1
+
+    # test_leaving_a_tomogram_prunes_it: moving on forgets the candidates of the tomogram left, and keeps the others
+    def test_leaving_a_tomogram_prunes_it(self, make_config: Callable[..., Path]) -> None:
+        session = Session(open_project(make_config(names=THREE)))
+        session.candidates.replace(THREE[0], 'cage', [Hit(1, 1, 1, 0.3)], reach=2)
+        session.candidates.replace(THREE[1], 'cage', [Hit(2, 2, 2, 0.5)], reach=2)
+        session.go(1)
+        assert session.candidates.candidates(THREE[0]) == [] and len(session.candidates.candidates(THREE[1])) == 1
+        session.go(1)
+        assert len(session.candidates.candidates(THREE[1])) == 1
+
+    # test_visited_pruned_on_start: reopening a project forgets candidates of visited tomograms except the one resumed at
+    def test_visited_pruned_on_start(self, make_config: Callable[..., Path]) -> None:
+        project = open_project(make_config(names=THREE))
+        first = Session(project)
+        first.go(1)
+        first.candidates.replace(THREE[0], 'cage', [Hit(1, 1, 1, 0.3)], reach=2)
+        first.candidates.replace(THREE[1], 'cage', [Hit(2, 2, 2, 0.5)], reach=2)
+        first.candidates.replace(THREE[2], 'cage', [Hit(3, 3, 3, 0.6)], reach=2)
+        again = Session(project)
+        assert again.current == THREE[1]
+        assert [c.tomogram for c in again.candidates._items.values()] == [THREE[1], THREE[2]]

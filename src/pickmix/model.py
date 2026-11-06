@@ -152,6 +152,8 @@ class Session:
         self.index = self.names.index(saved.last) if saved.last in self.names else 0
         if self.names:
             self._remember()
+            # don't include seen tomograms in template matching candidates
+            self.candidates.prune(self.visited - {self.current})
 
     # accept: turn candidates into picks of their kind, at the candidate's position
     def accept(self, *candidate_ids: int) -> list[Pick]:
@@ -165,10 +167,13 @@ class Session:
     def current(self) -> str:
         return self.names[self.index]
 
-    # go: show tomogram i, clamped; saves progress and notifies
+    # go: show tomogram i, clamped; saves progress, forgets the candidates of the tomogram left, and notifies
     def go(self, i: int) -> None:
+        left = self.current
         self.index = min(max(i, 0), len(self.names) - 1)
         self._remember()
+        if left != self.current:
+            self.candidates.prune([left])
         for listener in self.goto_listeners:
             listener()
 
