@@ -20,7 +20,7 @@ from pickmix.gui.components.status import StatusBadge, fit_status, status_item
 from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
-from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
+from pickmix.gui.style import CELL_PADDING, bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
 from pickmix.loader import Loader, Opened
 from pickmix.matcher import MatchService
 from pickmix.model import Session
@@ -89,7 +89,8 @@ class PickTab(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setColumnWidth(0, 28)
+        # 16px icon plus the cell padding either side, or a status item's icon is clipped
+        self.table.setColumnWidth(0, 16 + 2 * CELL_PADDING)
         self.delete_button = icon_button('delete', 'Delete', 'Delete the selected pick (Delete)')
         self.delete_button.setEnabled(False)
         for button in (self.fit_button, self.fill_button, self.delete_button):
