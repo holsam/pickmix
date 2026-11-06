@@ -11,12 +11,17 @@ from PySide6.QtWidgets import QHeaderView
 from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
+from pickmix.candidates import Hit
 from pickmix.config import Kind
 from pickmix.estimates import EstimateService
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.loader import Loader
+from pickmix.matcher import MatchService
 from pickmix.model import Session
 from pickmix.project import open_project
+
+# NAME: the first tomogram of the fixture project
+NAME: str = 'Position_1_2'
 
 # THREE: tomograms for navigation tests
 THREE: tuple[str, ...] = ('Position_1_2', 'Position_1_3', 'Other_9')
@@ -294,3 +299,66 @@ class TestPickTab:
         fit_scale = tab.canvas.transform().m11()
         tab.fill_button.click()
         assert tab.canvas.transform().m11() >= fit_scale
+
+    # test_candidates_drawn: candidates of shown kinds are drawn with negative ids, best-score filter applied
+    def test_candidates_drawn(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.candidates.replace(NAME, 'cage', [Hit(2, 2, 1, 0.3), Hit(5, 4, 2, 0.6)], reach=1)
+        qtbot.waitUntil(lambda: len(tab.canvas.marker_ids()) == 2, timeout=5000)
+        assert tab.canvas.marker_ids() == [-2, -1]
+        tab.match_pane.score_slider.setValue(50)
+        assert tab.canvas.marker_ids() == [-2]
+        assert 'score 0.60' in tab.canvas._items[-2].toolTip()
+
+    # test_hidden_kind_hides_candidates: hiding a kind hides its candidates too
+    def test_hidden_kind_hides_candidates(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.candidates.replace(NAME, 'cage', [Hit(2, 2, 1, 0.6)], reach=1)
+        qtbot.waitUntil(lambda: tab.canvas.marker_ids() == [-1], timeout=5000)
+        tab.kind_toggles['cage'].setChecked(False)
+        assert tab.canvas.marker_ids() == []
+
+    # test_accept_selected: accepting a selected candidate converts it to a pick of its kind and selects it
+    def test_accept_selected(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.candidates.replace(NAME, 'cage', [Hit(2, 2, 1, 0.6)], reach=1)
+        qtbot.waitUntil(lambda: tab.canvas.marker_ids() == [-1], timeout=5000)
+        tab._clicked(-1)
+        assert tab.canvas.selected_id == -1 and tab.z_slider.value() == 1 and tab.match_pane.accept_button.isEnabled()
+        tab.accept_selected()
+        (pick,) = session.store.all('cage')
+        assert (pick.x, pick.y, pick.z) == (2, 2, 1) and tab.canvas.selected_id == pick.id
+        assert session.candidates.count('cage') == 0 and tab.canvas.marker_ids() == [pick.id]
+
+    # test_delete_rejects_candidate: delete on a selected candidate rejects it and a later scan leaves it out
+    def test_delete_rejects_candidate(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.candidates.replace(NAME, 'cage', [Hit(2, 2, 1, 0.6)], reach=1)
+        qtbot.waitUntil(lambda: tab.canvas.marker_ids() == [-1], timeout=5000)
+        tab._clicked(-1)
+        tab.delete_selected()
+        assert tab.canvas.marker_ids() == [] and session.store.total() == 0
+        session.candidates.replace(NAME, 'cage', [Hit(2, 2, 1, 0.6)], reach=1)
+        assert session.candidates.count('cage') == 0
+
+    # test_accept_shown: test accept all converts all candidates of a kind in active tomogram to pick (if above score)
+    def test_accept_shown(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.candidates.replace(NAME, 'cage', [Hit(2, 2, 1, 0.3), Hit(5, 4, 2, 0.6)], reach=1)
+        qtbot.waitUntil(lambda: len(tab.canvas.marker_ids()) == 2, timeout=5000)
+        tab.match_pane.score_slider.setValue(50)
+        assert tab.match_pane.accept_all_button.isEnabled()
+        tab.accept_shown()
+        assert [(p.x, p.y) for p in session.store.all('cage')] == [(5, 4)] and session.candidates.count('cage') == 1
+
+    # test_scan_needs_picks: scan waits for a pick of active kind
+    def test_scan_needs_picks(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        matcher = MatchService(session)
+        tab.matcher = matcher
+        tab.match_pane.set_matcher(matcher, 0.2)
+        tab._set_active('cage')
+        assert not tab.match_pane.scan_button.isEnabled() and 'Pick some cage' in tab.match_pane.status.text()
+        session.store.add(NAME, 'cage', 3, 3, 2)
+        assert tab.match_pane.scan_button.isEnabled()
+        matcher.shutdown()

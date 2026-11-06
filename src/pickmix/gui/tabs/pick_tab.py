@@ -17,10 +17,12 @@ from pickmix.geometry import Parent, match_parents
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import StatusBadge, fit_status
+from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.workers import post
 from pickmix.gui.style import bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
 from pickmix.loader import Loader, Opened
+from pickmix.matcher import MatchService
 from pickmix.model import Session
 from pickmix.timing import Timer
 
@@ -35,6 +37,7 @@ class PickTab(QWidget):
         self.session: Session | None = None
         self.loader: Loader | None = None
         self.service: EstimateService | None = None
+        self.matcher: MatchService | None = None
         self._want_select: int | None = None
         self._matched: dict[str, dict[int, Parent]] = {}
         self.opened: Opened | None = None
@@ -50,6 +53,7 @@ class PickTab(QWidget):
         self.title = title()
         self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram.')
         self.status = QLabel()
+        self.match_pane = MatchPane()
         self.tomo = TomoPane()
         self.tomo.setMinimumWidth(200)
         self.tomo_toggle = icon_button('left_panel_close', '<', 'Hide the tomogram list', size=20)
@@ -117,6 +121,7 @@ class PickTab(QWidget):
         settings_layout.addWidget(image)
         settings_layout.addWidget(view)
         settings_layout.addWidget(kinds)
+        settings_layout.addWidget(self.match_pane)
         settings_layout.addStretch()
         # vertical Z scrollbar between the canvas and the settings
         z_column = QVBoxLayout()
@@ -179,11 +184,22 @@ class PickTab(QWidget):
         self.canvas.marker_clicked.connect(self._clicked)
         self.canvas.z_scrolled.connect(lambda steps: self.z_slider.setValue(self.z_slider.value() + steps))
         self.table.cellClicked.connect(self._row_clicked)
+        self.match_pane.scan_requested.connect(self._scan)
+        self.match_pane.stop_requested.connect(self._stop_scan)
+        self.match_pane.accept_requested.connect(self.accept_selected)
+        self.match_pane.reject_requested.connect(self.delete_selected)
+        self.match_pane.accept_all_requested.connect(self.accept_shown)
+        self.match_pane.threshold_changed.connect(self._on_picks)
 
     # set_session: show a session and follow its picks and navigation
-    def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
-        self.session, self.loader, self.service = session, loader, service
+    def set_session(self, session: Session, loader: Loader, service: EstimateService, matcher: MatchService | None = None) -> None:
+        self.session, self.loader, self.service, self.matcher = session, loader, service, matcher
+        self.match_pane.set_matcher(matcher, session.project.config.match.min_score)
         session.store.listeners.append(self._on_picks)
+        # candidates and scan progress arrive on the scanning thread
+        session.candidates.listeners.append(lambda: post(self._on_picks))
+        if matcher is not None:
+            matcher.listeners.append(lambda: post(self._on_picks))
         # estimates arrive on the service's thread
         service.store.listeners.append(lambda: post(self._on_picks))
         session.goto_listeners.append(self._on_goto)
@@ -267,15 +283,53 @@ class PickTab(QWidget):
             self.tomo_toggle.setIcon(panel)
         self.tomo_toggle.setToolTip('Hide the tomogram list' if shown else 'Show the tomogram list')
 
-    # delete_selected: remove the selected pick
+    # delete_selected: remove selected pick or reject selected candidate
     def delete_selected(self) -> None:
-        if self.session is not None and self.canvas.selected_id is not None:
+        if self.session is None or self.canvas.selected_id is None:
+            return
+        if self.canvas.selected_id < 0:
+            self.session.candidates.reject(-self.canvas.selected_id)
+        else:
             self.session.store.remove(self.canvas.selected_id)
+
+    # accept_selected: convert selected candidate into pick
+    def accept_selected(self) -> None:
+        if self.session is None or self.canvas.selected_id is None or self.canvas.selected_id >= 0:
+            return
+        picks = self.session.accept(-self.canvas.selected_id)
+        if picks:
+            self._select(picks[0].id)
+
+    # accept_shown: convert all candidates of kind in tomogram to picks
+    def accept_shown(self) -> None:
+        if self.session is not None and self.active is not None:
+            found = self.session.candidates.candidates(self.session.current, self.active, min_score=self.match_pane.min_score())
+            if found:
+                self.session.accept(*(c.id for c in found))
 
     # _set_active: kind new picks are made as
     def _set_active(self, name: str) -> None:
         self.active = name
         self.kind_buttons[name].setChecked(True)
+        self._refresh_match()
+
+    # _scan: scan for active kind's template in every tomogram
+    def _scan(self) -> None:
+        if self.matcher is not None and self.active is not None:
+            self.matcher.start(self.active)
+
+    # _stop_scan: end matching scan
+    def _stop_scan(self) -> None:
+        if self.matcher is not None:
+            self.matcher.stop()
+
+    # _refresh_match: refresh match pane for active kind/tomogram
+    def _refresh_match(self) -> None:
+        if self.session is None:
+            return
+        kind, current = self.active, self.session.current
+        shown = len(self.session.candidates.candidates(current, kind, min_score=self.match_pane.min_score())) if kind else 0
+        self.match_pane.refresh(kind=kind, picks=self.session.store.total(kind) if kind else 0, shown=shown, total=self.session.candidates.count(kind) if kind else 0, selected=self.canvas.selected_id is not None and self.canvas.selected_id < 0)
 
     # pick_kind: choose the kind on the i-th hotkey
     def pick_kind(self, i: int) -> None:
@@ -471,14 +525,13 @@ class PickTab(QWidget):
                 continue
             for p in self.session.store.picks(name, kind_name):
                 fit = self.service.store.get(p) if self.service else None
-                view = None if fit is None else FitView(
-                    fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' else None,
-                    fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi,
-                )
+                view = None if fit is None else FitView(fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' else None, fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi)
                 parent = self._matched.get(kind_name, {}).get(p.id)
                 unmatched = kind.parent is not None and fit is not None and parent is None
                 normal = None if parent is None else (parent.normal[0], parent.normal[1])
                 out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag) or unmatched, view, normal))
+            for c in self.session.candidates.candidates(name, kind_name, min_score=self.match_pane.min_score()):
+                out.append(Marker(-c.id, c.x, c.y, c.z, kind.marker_a / 2 / px, kind.colour, candidate=True, tip=f'{kind_name} candidate, score {c.score:.2f}'))
         return out
 
     # _fill_table: the current tomogram's picks of known kinds, each with its estimate status, and the selected one highlighted
@@ -514,6 +567,7 @@ class PickTab(QWidget):
     # _sync_delete: Delete is only live while a pick is selected
     def _sync_delete(self) -> None:
         self.delete_button.setEnabled(self.canvas.selected_id is not None)
+        self._refresh_match()
 
     # _add: new pick of the active kind on the current slice
     def _add(self, x: float, y: float) -> None:
@@ -528,11 +582,12 @@ class PickTab(QWidget):
             self.session.store.move(pick_id, x, y)
             self._select(pick_id)
 
-    # _clicked: pick selected on the canvas; show the slice it was picked on
+    # _clicked: pick or candidate (negative id) selected on canvas; show the slice it's on
     def _clicked(self, pick_id: int) -> None:
         assert self.session is not None
         self._select(pick_id)
-        self.z_slider.setValue(round(self.session.store.get(pick_id).z))
+        z = self.session.candidates.get(-pick_id).z if pick_id < 0 else self.session.store.get(pick_id).z
+        self.z_slider.setValue(round(z))
 
     # _row_clicked: pick chosen in the list
     def _row_clicked(self, row: int, _col: int) -> None:
