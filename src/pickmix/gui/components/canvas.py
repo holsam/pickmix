@@ -45,6 +45,9 @@ class Marker:
     fit: FitView | None = None
     # membrane normal projected on the slice, as a unit-length-or-shorter (x, y) vector
     normal: tuple[float, float] | None = None
+    # template matching candidate rather than a pick
+    candidate: bool = False
+    tip: str = ''
 
 # SliceCanvas: one slice plus markers; emits requests, never edits picks itself
 class SliceCanvas(QGraphicsView):
@@ -151,9 +154,10 @@ class SliceCanvas(QGraphicsView):
             ring = QGraphicsEllipseItem(-m.radius_px, -m.radius_px, 2 * m.radius_px, 2 * m.radius_px)
             ring.setPos(m.x + 0.5, m.y + 0.5)
             ring.setZValue(1)
+            ring.setToolTip(m.tip)
             dot = QGraphicsEllipseItem(-2, -2, 4, 4, ring)
             dot.setFlag(QGraphicsEllipseItem.GraphicsItemFlag.ItemIgnoresTransformations)
-            dot.setBrush(QColor(m.colour))
+            dot.setBrush(Qt.BrushStyle.NoBrush if m.candidate else QColor(m.colour))
             dot.setPen(QPen(Qt.PenStyle.NoPen))
             if m.normal is not None:
                 reach = max(4 * m.radius_px, 16.0)
@@ -212,6 +216,9 @@ class SliceCanvas(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
         elif self._drag is not None:
             pick_id, start = self._drag
+            # don't drag a candidate
+            if self._markers[pick_id].candidate:
+                return
             pos = self.mapToScene(event.position().toPoint())
             delta = pos - start
             if self._drag_moved or math.hypot(delta.x(), delta.y()) * self.transform().m11() > _DRAG_PX:
@@ -275,6 +282,8 @@ class SliceCanvas(QGraphicsView):
             pen.setWidth(3 if marker_id == self.selected_id else 2)
             if m.flagged:
                 pen.setStyle(Qt.PenStyle.DashLine)
+            elif m.candidate:
+                pen.setStyle(Qt.PenStyle.DotLine)
             item.setPen(pen)
         for arrow in self._arrows.values():
             arrow.setVisible(self._normals)

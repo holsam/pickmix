@@ -106,6 +106,21 @@ class TestCanvas:
         pick_id, x, y = blocker.args
         assert pick_id == 3 and abs(x - 25) < 1.5 and abs(y - 12) < 1.5
 
+    # test_candidate_marker: a candidate is dotted, shows its tip, and is only selected not dragged
+    def test_candidate_marker(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_markers([Marker(-3, 20, 15, 0, 4.0, 'yellow', candidate=True, tip='score 0.42')])
+        item = canvas._items[-3]
+        assert item.pen().style() == Qt.PenStyle.DotLine and item.toolTip() == 'score 0.42'
+        start, end = _view_pos(canvas, 20, 15), _view_pos(canvas, 25, 12)
+        QTest.mousePress(canvas.viewport(), Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(canvas.viewport(), end)
+        moved = []
+        canvas.move_requested.connect(lambda *args: moved.append(args))
+        with qtbot.waitSignal(canvas.marker_clicked) as blocker:
+            QTest.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, pos=end)
+        assert blocker.args == [-3] and moved == [] and canvas.selected_id == -3
+
     # test_wheel_scrolls_z: a wheel notch emits one z step
     def test_wheel_scrolls_z(self, qtbot: QtBot) -> None:
         canvas = _canvas(qtbot)
