@@ -186,6 +186,7 @@ class KindsPane(QWidget):
                 self.service.store.rename_kind(old, name)
             if self.session is not None:
                 self.session.store.rename_kind(old, name)
+                self.session.candidates.rename_kind(old, name)
         self._saved()
 
     # _delete: remove a kind and its picks, asking first if it has any; refused with a reason if the config would not be valid
@@ -204,6 +205,7 @@ class KindsPane(QWidget):
         self.project.update(**changes)
         if self.session is not None:
             self.session.store.remove_kind(name)
+            self.session.candidates.remove_kind(name)
         self._saved()
 
     # _confirm: ask a yes or no question
