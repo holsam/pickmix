@@ -9,9 +9,10 @@ from pathlib import Path
 
 # Import internal pickmix objects
 from pickmix.config import Kind
-from pickmix.estimates import EstimateService, EstimateStore
+from pickmix.estimate.registry import Fit
+from pickmix.estimates import EstimateService, EstimateStore, effective_box_a
 from pickmix.loader import Loader
-from pickmix.model import Session
+from pickmix.model import Pick, Session
 from pickmix.project import open_project
 
 # NAME: the single tomogram of the fixture project
@@ -101,3 +102,41 @@ class TestEstimates:
         service.store.rename_kind('yellow', 'gold')
         service.session.store.rename_kind('yellow', 'gold')
         assert pick.kind == 'gold' and service.store.get(pick) is not None and service.pending == 0
+
+    # test_order: pick's own box, then fit's, then kind's, then marker's
+    def test_order(self) -> None:
+        fit = Fit(x=0, y=0, z=0, radius_a=10, box_a=30.0, snr=1, z_lo=0, z_hi=0)
+        own, plain = Pick(1, NAME, 'k', 0, 0, 0, box_a=45.0), Pick(2, NAME, 'k', 0, 0, 0)
+        kind = Kind(marker_a=20, box_a=50.0)
+        assert effective_box_a(own, kind, fit) == 45.0
+        assert effective_box_a(plain, kind, fit) == 30.0
+        assert effective_box_a(plain, kind, None) == 50.0
+        assert effective_box_a(plain, Kind(marker_a=20), None) == 20.0
+        assert effective_box_a(plain, Kind(marker_a=20), fit.model_copy(update={'box_a': 0.0})) == 20.0
+
+    # test_store_get_applies_pick_box: stored fit comes back with pick's box edge, and stored row is unchanged
+    def test_store_get_applies_pick_box(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0, box_a=250.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        assert service.store.get(pick).box_a == 250.0
+        service.session.store.set_box(pick.id, None)
+        assert service.store.get(pick).box_a == 100
+
+    # test_order: pick's own box, then fit's, then kind's, then marker's
+    def test_order(self) -> None:
+        fit = Fit(x=0, y=0, z=0, radius_a=10, box_a=30.0, snr=1, z_lo=0, z_hi=0)
+        own, plain = Pick(1, NAME, 'k', 0, 0, 0, box_a=45.0), Pick(2, NAME, 'k', 0, 0, 0)
+        kind = Kind(marker_a=20, box_a=50.0)
+        assert effective_box_a(own, kind, fit) == 45.0
+        assert effective_box_a(plain, kind, fit) == 30.0
+        assert effective_box_a(plain, kind, None) == 50.0
+        assert effective_box_a(plain, Kind(marker_a=20), None) == 20.0
+        assert effective_box_a(plain, Kind(marker_a=20), fit.model_copy(update={'box_a': 0.0})) == 20.0
+
+    # test_store_get_applies_pick_box: stored fit gives pick's own box edge, and stored row is unchanged
+    def test_store_get_applies_pick_box(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0, box_a=250.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        assert service.store.get(pick).box_a == 250.0
+        service.session.store.set_box(pick.id, None)
+        assert service.store.get(pick).box_a == 100
