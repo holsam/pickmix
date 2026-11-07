@@ -22,7 +22,7 @@ _DRAG_PX: float = 3.0
 # _FILL_ALPHA: opacity of the hatching inside the box, out of 255
 _FILL_ALPHA: int = 110
 
-# Patch: a crop of one slice and where the pick and its box sit in it
+# Patch: a crop of one slice and where pick and box sit
 @dataclass(frozen=True)
 class Patch:
     pixels: np.ndarray
@@ -38,7 +38,7 @@ class Patch:
     # tomogram width and height in voxels
     bounds: tuple[int, int]
 
-# PatchCanvas: a crop of a slice with the pick box as a translucent hatched square and the pick as a small dot
+# PatchCanvas: a crop of a slice with pick box as translucent hatched square and pick as a small dot
 class PatchCanvas(QGraphicsView):
     # move_requested: dot or box dragged and released, pick id and new voxel x, y
     move_requested = Signal(int, float, float)
@@ -67,6 +67,11 @@ class PatchCanvas(QGraphicsView):
     def has_patch(self) -> bool:
         return self._patch is not None
 
+    # patch: the crop showing, None if none
+    @property
+    def patch(self) -> Patch | None:
+        return self._patch
+
     # box_rect: the box in scene pixels as (x, y, width, height), None with no crop
     def box_rect(self) -> tuple[float, float, float, float] | None:
         if self._box is None:
@@ -78,7 +83,7 @@ class PatchCanvas(QGraphicsView):
     def dot_position(self) -> tuple[float, float] | None:
         return None if self._dot is None else (self._dot.pos().x(), self._dot.pos().y())
 
-    # set_patch: show a crop with the box over it and the pick as a dot
+    # set_patch: show a crop with box over it and pick as a dot
     def set_patch(self, patch: Patch) -> None:
         self._patch = patch
         self._drag, self._moved, self._offset = None, False, QPointF(0, 0)
@@ -106,7 +111,7 @@ class PatchCanvas(QGraphicsView):
         self._place()
         self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
-    # clear: remove the crop
+    # clear: remove crop
     def clear(self) -> None:
         self._patch = None
         self._pixmap.setPixmap(QPixmap())
@@ -115,14 +120,14 @@ class PatchCanvas(QGraphicsView):
                 self._scene.removeItem(item)
         self._box = self._dot = None
 
-    # mousePressEvent: grab the dot or the box
+    # mousePressEvent: grab dot or box
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._patch is not None and self._hit(self.mapToScene(event.position().toPoint())):
             self._drag, self._moved = self.mapToScene(event.position().toPoint()), False
         else:
             super().mousePressEvent(event)
 
-    # mouseMoveEvent: carry the dot and box along with the pointer
+    # mouseMoveEvent: carry dot and box
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._drag is None:
             super().mouseMoveEvent(event)
@@ -145,24 +150,24 @@ class PatchCanvas(QGraphicsView):
         else:
             super().mouseReleaseEvent(event)
 
-    # resizeEvent: keep the whole crop in view
+    # resizeEvent: keep whole crop in view
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         if self._patch is not None:
             self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
-    # _scene_pos: where a voxel position falls in the crop, with the half pixel that puts a voxel's centre mid-pixel
+    # _scene_pos: where a voxel position falls in crop, with half pixel that puts a voxel's centre mid-pixel
     def _scene_pos(self, x: float, y: float) -> QPointF:
         assert self._patch is not None
         return QPointF(x - self._patch.origin[0] + 0.5, y - self._patch.origin[1] + 0.5)
 
-    # _place: put the box and dot where the patch says, plus any drag in progress
+    # _place: put box and dot where patch says, plus any drag in progress
     def _place(self) -> None:
         assert self._patch is not None and self._box is not None and self._dot is not None
         self._box.setPos(self._scene_pos(*self._patch.box_centre) + self._offset)
         self._dot.setPos(self._scene_pos(*self._patch.pick) + self._offset)
 
-    # _hit: whether a scene position is on the dot or inside the box
+    # _hit: whether a scene position is on dot or inside box
     def _hit(self, pos: QPointF) -> bool:
         assert self._box is not None and self._dot is not None
         reach = _HIT_PX / self.transform().m11()

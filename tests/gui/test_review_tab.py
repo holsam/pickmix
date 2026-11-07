@@ -12,8 +12,9 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.config import Kind
+from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
-from pickmix.gui.tabs.review_tab import ReviewTab
+from pickmix.gui.tabs.review_tab import ReviewTab, box_a
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import open_project
@@ -144,7 +145,7 @@ class TestReviewTab:
         session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
         tab.refresh()
         tab.table.selectRow(0)
-        qtbot.waitUntil(lambda: all(not label.pixmap().isNull() for label in (tab.xy_label, tab.xz_label, tab.yz_label)), timeout=5000)
+        qtbot.waitUntil(lambda: all(not label.pixmap().isNull() for label in (tab.xy_label, tab.xz_label, tab.yz_label)) and tab.patch_canvas.has_patch, timeout=5000)
         assert tab.yz_label.toolTip() and not tab.reestimate_button.icon().isNull()
 
     # test_crops: preview crops are cut around the pick
@@ -153,6 +154,64 @@ class TestReviewTab:
         xy, xz, yz = tab.crops(NAME, (4.0, 3.0, 2.0))
         vol = np.arange(4 * 6 * 8, dtype=np.float32).reshape(4, 6, 8)
         assert np.array_equal(xy, vol[2]) and np.array_equal(xz, vol[:, 3, :]) and np.array_equal(yz, vol[:, :, 4])
+
+    # test_preview_grid: the previews are four panels, XY and the patch above XZ and YZ
+    def test_preview_grid(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        grid = tab.previews
+        assert [grid.itemAtPosition(r, c).widget() for r, c in ((0, 0), (0, 1), (1, 0), (1, 1))] == [tab.xy_label, tab.patch_canvas, tab.xz_label, tab.yz_label]
+        assert tab.patch_canvas.toolTip()
+
+    # test_box_a_sources: the box shown is the fit's, else the kind's, else the marker's
+    def test_box_a_sources(self) -> None:
+        fit = Fit(x=0, y=0, z=0, radius_a=10, box_a=30.0, snr=1, z_lo=0, z_hi=0)
+        assert box_a(Kind(marker_a=20, box_a=50.0), fit) == 30.0
+        assert box_a(Kind(marker_a=20, box_a=50.0), None) == 50.0
+        assert box_a(Kind(marker_a=20), None) == 20.0
+        assert box_a(Kind(marker_a=20), fit.model_copy(update={'box_a': 0.0})) == 20.0
+
+    # test_preview_geometry: the patch is 1.5 times the box, centred on the pick, and the outlines surround the pick in each crop
+    def test_preview_geometry(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        px = session.project.tomos[NAME].pixel_size
+        preview = tab.preview(pick, None)
+        box = 21.44 / px
+        assert preview.patch.pixels.shape == (6, 6) and preview.patch.origin == (1, 0) and preview.patch.box_px == box
+        assert preview.patch.pick == (4.0, 3.0) and preview.patch.bounds == (8, 6)
+        assert preview.outlines[0] == (4.5 - box / 2, 3.5 - box / 2, 4.5 + box / 2, 3.5 + box / 2)
+        assert preview.outlines[1] == (4.5 - box / 2, 2.5 - box / 2, 4.5 + box / 2, 2.5 + box / 2)
+        assert preview.outlines[2][:2] == (3.5 - box / 2, 2.5 - box / 2) and preview.slabs is None
+
+    # test_preview_slab_from_fit: with a fit, the z range it used is outlined in XZ and YZ and the preview centres on the fit
+    def test_preview_slab_from_fit(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        fit = Fit(x=5.0, y=3.0, z=2.0, radius_a=10, box_a=21.44, snr=1, z_lo=1, z_hi=3)
+        preview = tab.preview(pick, fit)
+        assert preview.patch.pick == (4.0, 3.0) and preview.patch.box_centre == (5.0, 3.0)
+        assert preview.slabs is not None and (preview.slabs[0][1], preview.slabs[0][3]) == (1, 4)
+
+    # test_patch_shown: selecting a pick shows its patch
+    def test_patch_shown(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        tab.refresh()
+        tab.table.selectRow(0)
+        qtbot.waitUntil(lambda: tab.patch_canvas.has_patch, timeout=5000)
+        assert tab.patch_canvas.box_rect()[2] > 0
+
+    # test_patch_drag_moves_pick: dragging the patch moves the pick, keeps it selected and refreshes the patch
+    def test_patch_drag_moves_pick(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        tab.refresh()
+        tab.table.selectRow(0)
+        qtbot.waitUntil(lambda: tab.patch_canvas.has_patch, timeout=5000)
+        tab.patch_canvas.move_requested.emit(pick.id, 5.0, 3.0)
+        assert (session.store.get(pick.id).x, session.store.get(pick.id).y) == (5.0, 3.0)
+        qtbot.waitUntil(lambda: tab.patch_canvas.patch is not None and tab.patch_canvas.patch.pick == (5.0, 3.0), timeout=5000)
+        assert tab.table.currentRow() == 0
 
     # test_double_click_opens: double-clicking a row asks to open the pick
     def test_double_click_opens(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
