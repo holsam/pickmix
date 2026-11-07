@@ -15,6 +15,9 @@ from pickmix.loader import Loader
 from pickmix.model import Pick, PickStore, Session
 from pickmix.project import Project
 
+# _PICKING: kind settings about how a pick is made, which do not change how it is estimated
+_PICKING: set[str] = {'pick_mode', 'bounds_padding'}
+
 # effective_box_a: the box edge in Angstrom for a pick: its own if it has one, else the fit's, else the kind's, else the marker's
 def effective_box_a(pick: Pick, kind: Kind, fit: Fit | None) -> float:
     if pick.box_a is not None:
@@ -59,7 +62,7 @@ class EstimateStore:
             self._digests = (config, {})
         cache = self._digests[1]
         if kind not in cache and kind in config.kinds:
-            blob = json.dumps({'kind': config.kinds[kind].model_dump(), 'ring': config.ring.model_dump(), 'source': config.source}, sort_keys=True)
+            blob = json.dumps({'kind': config.kinds[kind].model_dump(exclude=_PICKING), 'ring': config.ring.model_dump(), 'source': config.source}, sort_keys=True)
             cache[kind] = hashlib.sha1(blob.encode()).hexdigest()[:12]
         return cache.get(kind)
 

@@ -29,6 +29,10 @@ class Kind(BaseModel):
     tilt_prior_deg: float | None = Field(default=None, title='Tilt prior (°)', description='Written as rlnAngleTiltPrior when set, and left out otherwise.')
     # pixel size of the RELION extraction in Angstrom per pixel
     extract_angpix: float = Field(default=10.68, gt=0, title='Extract pixel size (Å/px)', description='Pixel size of the RELION extraction in Å per pixel.')
+    # how many clicks to create pick: one click, or two clicks on opposite sides of the structure
+    pick_mode: Literal['point', 'bounds'] = Field(default='point', title='Pick mode', description="'point': one click places the pick. 'bounds': click one side of the structure then the other; the pick goes midway between them and its box edge is the distance between the clicks plus padding. Extraction uses one box for the kind, taken from the picks' boxes when Box edge is 0.")
+    # fraction added to distance between two clicks of bounds pick
+    bounds_padding: float = Field(default=0.2, ge=0, title='Bounds padding (fraction)', description='Added to the distance between the two clicks of a bounds pick, as a fraction of it: 0.2 makes the box edge 20 per cent longer than the distance.')
 
 # RingParams: settings of the ring estimator, all lengths in Angstrom; title and description feed the settings form
 class RingParams(BaseModel):
@@ -129,11 +133,12 @@ class Config(BaseModel):
         self.hotkeys = [*keys, *[''] * (HOTKEYS - len(keys))]
         return self
 
-    # _relations: parents must exist and form no cycle, and a passthrough kind needs a box
+    # _relations: parents must exist and form no cycle, and a passthrough kind needs a box unless picks have own
     @model_validator(mode='after')
     def _relations(self) -> 'Config':
         for name, kind in self.kinds.items():
-            if kind.estimator == 'none' and kind.box_a == 0:
+            # bounds kinds takes box from clicks
+            if kind.estimator == 'none' and kind.box_a == 0 and kind.pick_mode == 'point':
                 raise ValueError(f'kind {name!r}: estimator "none" needs box_a above 0')
             seen, parent = {name}, kind.parent
             while parent is not None:

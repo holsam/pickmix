@@ -82,6 +82,27 @@ class TestConfig:
         save_config(config, tmp_path / 'config.toml')
         assert load_config(tmp_path / 'config.toml').match == MatchParams(template_px=24, min_score=0.3)
 
+    # test_pick_mode_defaults_and_round_trip: kinds pick with one click unless set, and mode/padding survive save & load
+    def test_pick_mode_defaults_and_round_trip(self, tmp_path: Path) -> None:
+        assert Kind(marker_a=10).pick_mode == 'point' and Kind(marker_a=10).bounds_padding == 0.2
+        config = _config(tube=Kind(marker_a=10, pick_mode='bounds', bounds_padding=0.5))
+        save_config(config, tmp_path / 'config.toml')
+        loaded = load_config(tmp_path / 'config.toml').kinds['tube']
+        assert (loaded.pick_mode, loaded.bounds_padding) == ('bounds', 0.5)
+
+    # test_bounds_kind_needs_no_box: a passthrough kind with no box is allowed when its picks bring their own
+    def test_bounds_kind_needs_no_box(self) -> None:
+        _config(tube=Kind(marker_a=10, pick_mode='bounds'))
+        with pytest.raises(ValidationError):
+            _config(tube=Kind(marker_a=10))
+
+    # test_pick_mode_rejected: unknown mode or negative padding is refused
+    def test_pick_mode_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            Kind(marker_a=10, pick_mode='triple')
+        with pytest.raises(ValueError):
+            Kind(marker_a=10, bounds_padding=-0.1)
+
     # test_default_hotkeys: no hotkeys means the first nine kinds in table order, padded with unused keys
     def test_default_hotkeys(self) -> None:
         assert _config().hotkeys == ['cage', *[''] * 8]

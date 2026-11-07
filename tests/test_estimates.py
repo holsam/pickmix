@@ -55,6 +55,13 @@ class TestEstimates:
         assert service.store.get(pick).x == 4.0
         assert len(service.store.path.read_text().splitlines()) == 2
 
+    # test_pick_mode_keeps_fits: changing how a kind is picked does not make its fits stale
+    def test_pick_mode_keeps_fits(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        service.session.project.update(kinds={**service.session.project.config.kinds, 'yellow': Kind(marker_a=100, box_a=100, pick_mode='bounds', bounds_padding=0.5)})
+        assert service.store.state(pick) == 'ok'
+
     # test_settings_change_makes_stale: changing the kind invalidates its fits until they are recomputed
     def test_settings_change_makes_stale(self, service: EstimateService) -> None:
         pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)

@@ -177,7 +177,7 @@ class TestKindsPane:
         pane, _ = _kinds_pane(qtbot, make_config)
         assert pane.kind_names() == ['cage'] and 'cage' in pane.edit_buttons
         text = pane.details['cage'].text()
-        assert '<b>Marker:</b> 600 Å' in text and '<b>Box:</b> from estimator' in text and '<b>Estimator:</b> ring' in text and '<b>Parent:</b> none' in text
+        assert '<b>Marker:</b> 600 Å' in text and '<b>Box:</b> from estimator' in text and '<b>Estimator:</b> ring' in text and '<b>Picking:</b> one click' in text and '<b>Parent:</b> none' in text
 
     # test_add_kind: a new kind is saved after the others and takes the first free key
     def test_add_kind(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
@@ -298,7 +298,7 @@ class TestKindsPane:
     def test_details_are_a_vertical_list_with_bold_keys(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         pane, _ = _kinds_pane(qtbot, make_config)
         lines = pane.details['cage'].text().split('<br>')
-        assert len(lines) == 7 and all(line.startswith('<b>') and ':</b> ' in line for line in lines)
+        assert len(lines) == 8 and all(line.startswith('<b>') and ':</b> ' in line for line in lines)
 
     # test_kinds_flow_into_columns: a wide block gives one column, a narrow one gives several, filling across then down
     def test_kinds_flow_into_columns(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:

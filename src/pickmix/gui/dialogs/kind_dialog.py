@@ -28,7 +28,7 @@ _TEXT: dict[str, tuple[str, str]] = {
 # NO_PARENT: text of the parent choice that means no parent
 NO_PARENT: str = '(none)'
 
-# KindDialog: sections for the kind's identity, size, estimation and extraction, each row labelled "Title (units) (?):"
+# KindDialog: sections for the kind's identity, size, picking, estimation and extraction, each row labelled "Title (units) (?):"
 class KindDialog(QDialog):
     # __init__: build the form; name and kind are None when adding, others are the kinds besides this one (so the parent choices and the names this kind cannot take), and check returns why a name and kind cannot be saved, or None
     def __init__(
@@ -48,6 +48,12 @@ class KindDialog(QDialog):
         choose.clicked.connect(self._choose_colour)
         self.marker_spin = _spin(kind.marker_a, minimum=0.01)
         self.box_spin = _spin(kind.box_a)
+        self.mode_box = QComboBox()
+        self.mode_box.addItems(['point', 'bounds'])
+        self.mode_box.setCurrentText(kind.pick_mode)
+        self.padding_spin = _spin(kind.bounds_padding, decimals=3)
+        self.padding_spin.setEnabled(kind.pick_mode == 'bounds')
+        self.mode_box.currentTextChanged.connect(lambda mode: self.padding_spin.setEnabled(mode == 'bounds'))
         self.estimator_box = QComboBox()
         # keep a name the registry does not know yet, so editing never rewrites it
         self.estimator_box.addItems(sorted({*ESTIMATORS, kind.estimator}))
@@ -93,6 +99,7 @@ class KindDialog(QDialog):
         tidy(layout)
         layout.addWidget(self._section('General', [('name', self.name_edit), ('colour', colour_row)]))
         layout.addWidget(self._section('Size', [('marker_a', self.marker_spin), ('box_a', self.box_spin)]))
+        layout.addWidget(self._section('Picking', [('pick_mode', self.mode_box), ('bounds_padding', self.padding_spin)]))
         layout.addWidget(self._section('Estimation', [
             ('estimator', self.estimator_box), ('parent', self.parent_box), ('parent_tolerance_a', self.tolerance_spin),
         ]))
@@ -108,7 +115,7 @@ class KindDialog(QDialog):
             colour=self.colour_edit.text().strip(), parent=None if parent == NO_PARENT else parent,
             parent_tolerance_a=self.tolerance_spin.value(),
             tilt_prior_deg=self.tilt_spin.value() if self.tilt_box.isChecked() else None,
-            extract_angpix=self.angpix_spin.value(),
+            extract_angpix=self.angpix_spin.value(), pick_mode=self.mode_box.currentText(), bounds_padding=self.padding_spin.value(),
         )
 
     # accept: close only when the entries make a kind the caller can save; otherwise say why
