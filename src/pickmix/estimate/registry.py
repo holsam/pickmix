@@ -41,4 +41,4 @@ def register(name: str) -> Callable[[Estimator], Estimator]:
     return add
 
 # imported last so the module can use the names above
-from pickmix.estimate import none as _none, ring as _ring  # noqa: E402,F401
+from pickmix.estimate import filament as _filament, none as _none, ring as _ring  # noqa: E402,F401
