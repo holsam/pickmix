@@ -213,6 +213,17 @@ class TestReviewTab:
         qtbot.waitUntil(lambda: tab.patch_canvas.patch is not None and tab.patch_canvas.patch.pick == (5.0, 3.0), timeout=5000)
         assert tab.table.currentRow() == 0
 
+    # test_box_column_only_with_own_boxes: the review table shows each pick's own box once any shown pick has one
+    def test_box_column_only_with_own_boxes(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        tab.refresh()
+        assert tab.table.isColumnHidden(8)
+        session.store.add(NAME, 'yellow', 5.0, 3.0, 2.0, box_a=412.0)
+        tab.refresh()
+        assert not tab.table.isColumnHidden(8)
+        assert sorted(tab.table.item(r, 8).text() for r in range(2)) == ['', '412']
+
     # test_double_click_opens: double-clicking a row asks to open the pick
     def test_double_click_opens(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()

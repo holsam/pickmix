@@ -87,8 +87,8 @@ class PickTab(QWidget):
         self.invert_box = QCheckBox('Invert')
         self.fit_button = QPushButton('Fit')
         self.fill_button = QPushButton('Fill')
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(['', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag'])
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(['', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Box (Å)'])
         quiet_table(self.table)
         self.table.setMaximumHeight(170)
         # status marker first and fixed so kinds always line up; Kind fits its names, the number columns share the rest
@@ -588,8 +588,10 @@ class PickTab(QWidget):
             status = fit_status(self.service.store.state(p) if self.service else 'ok', flag)
             tip = {'running': 'Estimating...', 'ok': 'Estimate is fine'}.get(status, flag)
             self.table.setCellWidget(r, 0, StatusBadge(status, tip))
-            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag), start=1):
+            for c, text in enumerate((p.kind, f'{p.x:.1f}', f'{p.y:.1f}', f'{p.z:.1f}', snr, flag, '' if p.box_a is None else f'{p.box_a:.0f}'), start=1):
                 self.table.setItem(r, c, QTableWidgetItem(text))
+        # the box column is only worth its room once a pick has a box of its own
+        self.table.setColumnHidden(7, all(p.box_a is None for p in picks))
         self._select(self.canvas.selected_id)
 
     # _select: highlight a pick in the canvas and the list

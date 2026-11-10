@@ -26,7 +26,7 @@ from pickmix.loader import Loader
 from pickmix.model import Pick, Session
 
 # _COLUMNS: pick table headings
-_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate']
+_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate', 'Box (Å)']
 
 # _CROP: half-width in voxels of the preview crops
 _CROP: int = 64
@@ -202,6 +202,9 @@ class ReviewTab(QWidget):
             status = fit_status(state, flag)
             tip = {'running': f'Estimate {state}', 'ok': 'Estimate is fine'}.get(status, flag)
             self.table.setItem(r, 7, status_item(status, tip))
+            self.table.setItem(r, 8, QTableWidgetItem('' if pick.box_a is None else f'{pick.box_a:.0f}'))
+        # the box column is only worth its room once a pick has a box of its own
+        self.table.setColumnHidden(8, all(p.box_a is None for p in self._shown))
         if selected in [p.id for p in self._shown]:
             self.table.selectRow([p.id for p in self._shown].index(selected))
         self.table.blockSignals(False)

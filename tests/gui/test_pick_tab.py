@@ -207,6 +207,17 @@ class TestPickTab:
         tab._move(pick.id, 4.0, 3.0)
         assert (session.store.get(pick.id).x, session.store.get(pick.id).box_a) == (4.0, box)
 
+    # test_box_column_only_with_own_boxes: the pick table shows each pick's own box once any pick has one
+    def test_box_column_only_with_own_boxes(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
+        tab._fill_table()
+        assert tab.table.isColumnHidden(7)
+        session.store.add('Position_1_2', 'cage', 2.0, 1.0, 1.0, box_a=412.0)
+        tab._fill_table()
+        assert not tab.table.isColumnHidden(7)
+        assert [tab.table.item(r, 7).text() for r in range(2)] == ['', '412']
+
     # test_delete_needs_selection: Delete is greyed until a pick is selected and again once it is gone
     def test_delete_needs_selection(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, _ = setup()
