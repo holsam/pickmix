@@ -78,6 +78,28 @@ class TestEstimates:
         _wait(lambda: service.store.state(pick) == 'ok')
         assert EstimateStore(service.session.project, service.session.store).state(pick) == 'ok'
 
+    # test_direction_round_trip: a fit's direction survives the csv, and fits without one stay without
+    def test_direction_round_trip(self, service: EstimateService) -> None:
+        a = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        b = service.session.store.add(NAME, 'yellow', 5.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(a) == 'ok' and service.store.state(b) == 'ok')
+        digest = service.store.digest('yellow')
+        fit = Fit.model_validate(service.store.get(a).model_dump(include=set(Fit.model_fields)))
+        service.store.put(a, fit.model_copy(update={'psi_deg': 37.5}), digest)
+        again = EstimateStore(service.session.project, service.session.store)
+        assert again.get(a).psi_deg == 37.5 and again.get(b).psi_deg is None
+
+    # test_old_csv_has_no_direction: an estimates.csv written before fits had a direction still loads
+    def test_old_csv_has_no_direction(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        lines = service.store.path.read_text().splitlines()
+        col = lines[0].split(',').index('psi_deg')
+        old = [','.join(v for i, v in enumerate(line.split(',')) if i != col) for line in lines]
+        service.store.path.write_text(chr(10).join(old) + chr(10))
+        again = EstimateStore(service.session.project, service.session.store)
+        assert again.get(pick).psi_deg is None
+
     # test_failure_is_flagged: an estimator that fails gives a flagged fit and a message, not a retry loop
     def test_failure_is_flagged(self, service: EstimateService) -> None:
         pick = service.session.store.add(NAME, 'bad', 3.0, 2.0, 1.0)

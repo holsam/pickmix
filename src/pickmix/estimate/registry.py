@@ -23,6 +23,8 @@ class Fit(BaseModel):
     z_hi: int
     # comma-separated warnings, empty when fine
     flag: str = ''
+    # in-plane direction of the structure in degrees from the voxel x axis towards y, in [0, 180); None for structures with no direction
+    psi_deg: float | None = None
 
 # Estimator: volume (z, y, x), pick (x, y, z) in voxels, kind, pixel size in Angstrom, config
 type Estimator = Callable[[np.ndarray, tuple[float, float, float], Kind, float, Config], Fit]
