@@ -3,7 +3,7 @@ pickmix: Pick tab
 '''
 
 # Import external dependencies
-import numpy as np
+import math, numpy as np
 from concurrent.futures import Future
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -30,6 +30,12 @@ from pickmix.timing import Timer
 # _STEPS: positions on the contrast sliders
 _STEPS: int = 1000
 
+# _HELP: keys that work on any kind
+_HELP: str = 'Enter: next tomogram. Shift+Enter: previous tomogram. Up and Down: change slice, with Shift ten at a time.'
+
+# _BOUNDS_HELP: what a two-click kind asks for
+_BOUNDS_HELP: str = ' Two-click kind: click one edge of the structure, then the opposite edge. Esc cancels.'
+
 # PickTab: canvas, kind buttons, z and contrast sliders, and the pick list of the current tomogram
 class PickTab(QWidget):
     # __init__: build the layout
@@ -52,7 +58,7 @@ class PickTab(QWidget):
         self._range = (0.0, 1.0)
         self.canvas = SliceCanvas()
         self.title = title()
-        self.help = hint('Enter: next tomogram. Shift+Enter: previous tomogram. Up/Down: change Z slice; Shift+Up/Down: change Z slice by 10.')
+        self.help = hint(_HELP)
         self.status = QLabel()
         self.match_pane = MatchPane()
         self.tomo = TomoPane()
@@ -182,6 +188,7 @@ class PickTab(QWidget):
         self.fill_button.setToolTip('Zoom tomogram to fill')
         self.delete_button.clicked.connect(self.delete_selected)
         self.canvas.add_requested.connect(self._add)
+        self.canvas.bounds_requested.connect(self._add_bounds)
         self.canvas.move_requested.connect(self._move)
         self.canvas.marker_clicked.connect(self._clicked)
         self.canvas.z_scrolled.connect(lambda steps: self.z_slider.setValue(self.z_slider.value() + steps))
@@ -263,6 +270,7 @@ class PickTab(QWidget):
             self._set_active(self.active if self.active in kinds else next(iter(kinds)))
         else:
             self.active = None
+            self._apply_mode()
         self._on_picks()
         self.tomo.refresh()
 
@@ -315,6 +323,7 @@ class PickTab(QWidget):
     def _set_active(self, name: str) -> None:
         self.active = name
         self.kind_buttons[name].setChecked(True)
+        self._apply_mode()
         self._refresh_match()
 
     # _scan: scan for active kind's template in every tomogram
@@ -326,6 +335,13 @@ class PickTab(QWidget):
     def _stop_scan(self) -> None:
         if self.matcher is not None:
             self.matcher.stop()
+
+    # _apply_mode: a click makes a pick of the active kind in the way that kind asks, and the hint says how
+    def _apply_mode(self) -> None:
+        kind = None if self.session is None or self.active is None else self.session.project.config.kinds.get(self.active)
+        bounds = kind is not None and kind.pick_mode == 'bounds'
+        self.canvas.set_bounds_mode(bounds, kind.bounds_padding if kind is not None else 0.0, kind.colour if kind is not None else 'yellow')
+        self.help.setText(_HELP + (_BOUNDS_HELP if bounds else ''))
 
     # _refresh_match: refresh match pane for active kind/tomogram
     def _refresh_match(self) -> None:
@@ -416,6 +432,8 @@ class PickTab(QWidget):
         self.z_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.z_label.setText(f'{z + 1} / {total}')
         self.canvas.set_z(z)
+        # both clicks of a pair belong on one slice
+        self.canvas.cancel_bounds()
         cached = self.loader.cached(name, z)
         if cached is not None:
             self._render(cached)
@@ -593,6 +611,19 @@ class PickTab(QWidget):
         if self.session is None or self.opened is None or self.active is None:
             return
         pick = self.session.store.add(self.opened.name, self.active, x, y, float(self.z))
+        self._select(pick.id)
+
+    # _add_bounds: two clicks on opposite sides of a structure make one pick halfway between them, with a box as far across as the clicks plus the kind's padding
+    def _add_bounds(self, x1: float, y1: float, x2: float, y2: float) -> None:
+        if self.session is None or self.opened is None or self.active is None:
+            return
+        distance = math.hypot(x2 - x1, y2 - y1)
+        # two clicks on the same voxel say nothing about size
+        if distance < 1.0:
+            return
+        kind = self.session.project.config.kinds[self.active]
+        box_a = distance * self.session.project.tomos[self.opened.name].pixel_size * (1 + kind.bounds_padding)
+        pick = self.session.store.add(self.opened.name, self.active, (x1 + x2) / 2, (y1 + y2) / 2, float(self.z), box_a=box_a)
         self._select(pick.id)
 
     # _move: pick dragged to a new position, on the same slice it was picked on

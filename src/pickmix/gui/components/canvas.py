@@ -6,7 +6,7 @@ pickmix: CPU-rendered slice canvas with pick markers
 import math, numpy as np
 from dataclasses import dataclass
 from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
+from PySide6.QtGui import QColor, QImage, QKeyEvent, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 # Import internal pickmix objects
@@ -55,6 +55,8 @@ class SliceCanvas(QGraphicsView):
     add_requested = Signal(float, float)
     # move_requested: marker dragged and released, pick id and new voxel x, y
     move_requested = Signal(int, float, float)
+    # bounds_requested: two clicks made in bounds mode, as voxel x1, y1, x2, y2
+    bounds_requested = Signal(float, float, float, float)
     # marker_clicked: marker pressed and released without moving
     marker_clicked = Signal(int)
     # z_scrolled: wheel steps, positive is up
@@ -82,10 +84,17 @@ class SliceCanvas(QGraphicsView):
         self._drag_moved = False
         self._pan: QPointF | None = None
         self._wheel = 0
+        # bounds mode: whether a click starts or finishes a pair, the padding the box gets, its colour, and the first click and what is drawn for it
+        self._bounds = False
+        self._padding = 0.0
+        self._bounds_colour = 'yellow'
+        self._first: QPointF | None = None
+        self._rubber: tuple[QGraphicsLineItem, QGraphicsRectItem] | None = None
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setBackgroundBrush(QColor(WELL_BG))
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.viewport().setMouseTracking(True)
 
     # has_image: whether a slice is showing
     @property
@@ -113,6 +122,24 @@ class SliceCanvas(QGraphicsView):
     def normal_visible(self, marker_id: int) -> bool:
         arrow = self._arrows.get(marker_id)
         return arrow is not None and arrow.isVisible()
+
+    # bounds_pending: whether a first click of a bounds pair has been made
+    @property
+    def bounds_pending(self) -> bool:
+        return self._first is not None
+
+    # set_bounds_mode: on, a click on empty image starts a bounds pair and the next one finishes it, with the box padded by this fraction and previewed in this colour; off, a click places a pick. Changing the mode drops a pair under way
+    def set_bounds_mode(self, on: bool, padding: float = 0.0, colour: str = 'yellow') -> None:
+        self.cancel_bounds()
+        self._bounds, self._padding, self._bounds_colour = on, padding, colour
+
+    # cancel_bounds: forget a first click
+    def cancel_bounds(self) -> None:
+        self._first = None
+        if self._rubber is not None:
+            for item in self._rubber:
+                self._scene.removeItem(item)
+            self._rubber = None
 
     # set_overlay: show or hide the fit rings, boxes and normals
     def set_overlay(self, *, rings: bool, boxes: bool, normals: bool = True) -> None:
@@ -179,6 +206,7 @@ class SliceCanvas(QGraphicsView):
 
     # clear: remove the slice and every marker, for a tomogram change
     def clear(self) -> None:
+        self.cancel_bounds()
         self._slice = None
         self._pixmap.setPixmap(QPixmap())
         self.set_markers([])
@@ -203,7 +231,15 @@ class SliceCanvas(QGraphicsView):
                 self.select(hit)
                 self._drag, self._drag_moved = (hit, pos), False
             elif self._slice is not None and self._inside(pos):
-                self.add_requested.emit(pos.x() - 0.5, pos.y() - 0.5)
+                if not self._bounds:
+                    self.add_requested.emit(pos.x() - 0.5, pos.y() - 0.5)
+                elif self._first is None:
+                    self._first = pos
+                    self._start_rubber(pos)
+                else:
+                    first = self._first
+                    self.cancel_bounds()
+                    self.bounds_requested.emit(first.x() - 0.5, first.y() - 0.5, pos.x() - 0.5, pos.y() - 0.5)
         else:
             super().mousePressEvent(event)
 
@@ -226,7 +262,16 @@ class SliceCanvas(QGraphicsView):
                 m = self._markers[pick_id]
                 self._items[pick_id].setPos(m.x + 0.5 + delta.x(), m.y + 0.5 + delta.y())
         else:
+            if self._first is not None:
+                self._update_rubber(self.mapToScene(event.position().toPoint()))
             super().mouseMoveEvent(event)
+
+    # keyPressEvent: Escape drops a bounds pair under way
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape and self._first is not None:
+            self.cancel_bounds()
+        else:
+            super().keyPressEvent(event)
 
     # mouseReleaseEvent: finish a pan, or finish a marker press as a click or a move
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
@@ -320,6 +365,26 @@ class SliceCanvas(QGraphicsView):
         pen.setWidth(width)
         pen.setStyle(style)
         return pen
+
+    # _start_rubber: the line and box that follow the pointer after a first click
+    def _start_rubber(self, pos: QPointF) -> None:
+        line = QGraphicsLineItem(pos.x(), pos.y(), pos.x(), pos.y())
+        line.setPen(self._fit_pen(self._bounds_colour, Qt.PenStyle.SolidLine, 2))
+        box = QGraphicsRectItem()
+        box.setPen(self._fit_pen(self._bounds_colour, Qt.PenStyle.DashLine))
+        for item in (line, box):
+            item.setZValue(3)
+            self._scene.addItem(item)
+        self._rubber = (line, box)
+
+    # _update_rubber: line from the first click to the pointer, and the box the pair would make, centred halfway
+    def _update_rubber(self, pos: QPointF) -> None:
+        if self._first is None or self._rubber is None:
+            return
+        line, box = self._rubber
+        line.setLine(self._first.x(), self._first.y(), pos.x(), pos.y())
+        half = math.hypot(pos.x() - self._first.x(), pos.y() - self._first.y()) * (1 + self._padding) / 2
+        box.setRect((self._first.x() + pos.x()) / 2 - half, (self._first.y() + pos.y()) / 2 - half, 2 * half, 2 * half)
 
     # _inside: whether a scene position is on the image
     def _inside(self, pos: QPointF) -> bool:

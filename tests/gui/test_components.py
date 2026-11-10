@@ -121,6 +121,54 @@ class TestCanvas:
             QTest.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, pos=end)
         assert blocker.args == [-3] and moved == [] and canvas.selected_id == -3
 
+    # test_bounds_two_clicks: in bounds mode the first click places nothing and the second asks for a pair
+    def test_bounds_two_clicks(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_bounds_mode(True, 0.2)
+        with qtbot.assertNotEmitted(canvas.add_requested):
+            QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+            assert canvas.bounds_pending
+            with qtbot.waitSignal(canvas.bounds_requested) as blocker:
+                QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 30, 12))
+        x1, y1, x2, y2 = blocker.args
+        assert abs(x1 - 10) < 1 and abs(y1 - 12) < 1 and abs(x2 - 30) < 1 and abs(y2 - 12) < 1
+        assert not canvas.bounds_pending
+
+    # test_bounds_preview_follows_pointer: after the first click a line and a box follow the pointer, the box padded and centred halfway
+    def test_bounds_preview_follows_pointer(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_bounds_mode(True, 0.5)
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        QTest.mouseMove(canvas.viewport(), _view_pos(canvas, 30, 12))
+        line, box = canvas._rubber
+        assert abs(line.line().x2() - 30.5) < 1 and abs(box.rect().width() - 20 * 1.5) < 1.5
+        assert abs(box.rect().center().x() - 20.5) < 1
+
+    # test_bounds_cancel: Escape, clearing the canvas and leaving bounds mode all drop a first click
+    def test_bounds_cancel(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_bounds_mode(True, 0.2)
+        canvas.setFocus()
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        QTest.keyClick(canvas, Qt.Key.Key_Escape)
+        assert not canvas.bounds_pending and canvas._rubber is None
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        canvas.set_bounds_mode(False)
+        assert not canvas.bounds_pending and canvas._rubber is None
+        canvas.set_bounds_mode(True, 0.2)
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        canvas.clear()
+        assert not canvas.bounds_pending
+
+    # test_bounds_click_on_marker_selects: in bounds mode a click on a marker still selects it and starts no pair
+    def test_bounds_click_on_marker_selects(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_markers([Marker(3, 20, 15, 0, 4.0, 'yellow')])
+        canvas.set_bounds_mode(True, 0.2)
+        with qtbot.waitSignal(canvas.marker_clicked):
+            QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 20, 15))
+        assert not canvas.bounds_pending
+
     # test_wheel_scrolls_z: a wheel notch emits one z step
     def test_wheel_scrolls_z(self, qtbot: QtBot) -> None:
         canvas = _canvas(qtbot)
