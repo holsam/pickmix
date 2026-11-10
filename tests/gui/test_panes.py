@@ -374,6 +374,34 @@ class TestSettingsPane:
             pane.match_form._boxes['min_score'][0].setValue(1.5)
         assert load_config(path).match.min_score == 0.2
 
+    # test_filament_value_autosaves: a committed filament number is written, the others are kept
+    def test_filament_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        with qtbot.waitSignal(pane.config_saved):
+            pane.filament_form._boxes['search_range_a'][0].setValue(450.0)
+        config = load_config(path)
+        assert config.filament.search_range_a == 450.0 and config.filament.width_range_a == (60.0, 300.0) and config.filament.box_from == 'segment'
+
+    # test_box_from_is_a_choice: the box source is a drop-down of its two values, saved when changed, with the trade-off on hover
+    def test_box_from_is_a_choice(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        [choice] = pane.filament_form._boxes['box_from']
+        assert [choice.itemText(i) for i in range(choice.count())] == ['width', 'segment'] and choice.currentText() == 'segment'
+        assert 'mostly empty' in pane.filament_form.labels['box_from'].toolTip()
+        with qtbot.waitSignal(pane.config_saved):
+            choice.setCurrentText('width')
+        assert load_config(path).filament.box_from == 'width'
+        pane.set_project(open_project(path))
+        assert pane.filament_form.get().box_from == 'width'
+
+    # test_filament_section_collapsed: filament parameters are hidden until the section is opened
+    def test_filament_section_collapsed(self, qtbot: QtBot) -> None:
+        pane = SettingsPane()
+        qtbot.addWidget(pane)
+        assert pane.filament_form.isHidden()
+        pane.filament_section.toggle.setChecked(True)
+        assert not pane.filament_form.isHidden()
+
     # test_no_save_button: there is nothing to press
     def test_no_save_button(self, qtbot: QtBot) -> None:
         pane = SettingsPane()
@@ -423,6 +451,7 @@ class TestSettingsPane:
         qtbot.addWidget(pane)
         closed = pane.minimumSizeHint().width()
         pane.ring_section.toggle.setChecked(True)
+        pane.filament_section.toggle.setChecked(True)
         assert pane.minimumSizeHint().width() == closed
 
 # TestTomoPane: tomogram dock
