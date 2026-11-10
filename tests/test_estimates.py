@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.config import Kind
+from pickmix.config import FilamentParams, Kind
 from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService, EstimateStore, effective_box_a
 from pickmix.loader import Loader
@@ -61,6 +61,17 @@ class TestEstimates:
         _wait(lambda: service.store.state(pick) == 'ok')
         service.session.project.update(kinds={**service.session.project.config.kinds, 'yellow': Kind(marker_a=100, box_a=100, pick_mode='bounds', bounds_padding=0.5)})
         assert service.store.state(pick) == 'ok'
+
+    # test_filament_settings_leave_other_kinds_current: editing filament settings makes only filament kinds stale
+    def test_filament_settings_leave_other_kinds_current(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        service.session.project.update(filament=FilamentParams(width_range_a=(80.0, 200.0)))
+        assert service.store.state(pick) == 'ok'
+        service.session.project.update(kinds={**service.session.project.config.kinds, 'rod': Kind(marker_a=100, box_a=100, estimator='filament')})
+        first = service.store.digest('rod')
+        service.session.project.update(filament=FilamentParams(width_range_a=(90.0, 200.0)))
+        assert service.store.digest('rod') != first
 
     # test_settings_change_makes_stale: changing the kind invalidates its fits until they are recomputed
     def test_settings_change_makes_stale(self, service: EstimateService) -> None:

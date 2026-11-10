@@ -69,7 +69,10 @@ class EstimateStore:
             self._digests = (config, {})
         cache = self._digests[1]
         if kind not in cache and kind in config.kinds:
-            blob = json.dumps({'kind': config.kinds[kind].model_dump(exclude=_PICKING), 'ring': config.ring.model_dump(), 'source': config.source}, sort_keys=True)
+            parts = {'kind': config.kinds[kind].model_dump(exclude=_PICKING), 'ring': config.ring.model_dump(), 'source': config.source}
+            if config.kinds[kind].estimator == 'filament':
+                parts['filament'] = config.filament.model_dump()
+            blob = json.dumps(parts, sort_keys=True)
             cache[kind] = hashlib.sha1(blob.encode()).hexdigest()[:12]
         return cache.get(kind)
 
