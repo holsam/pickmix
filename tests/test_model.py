@@ -61,6 +61,35 @@ class TestModel:
         store.add('Position_1_2', 'cage', 0.0, 0.0, 0.0)
         assert sorted(p.kind for p in PickStore(project).all()) == ['cage', 'gone']
 
+    # test_box_round_trip: a pick's own box edge survives a save, and picks without one stay without
+    def test_box_round_trip(self, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        store = PickStore(open_project(path))
+        store.add('Position_1_2', 'cage', 1.0, 2.0, 3.0, box_a=412.5)
+        store.add('Position_1_2', 'cage', 4.0, 5.0, 6.0)
+        assert [p.box_a for p in PickStore(open_project(path)).all()] == [412.5, None]
+
+    # test_old_csv_has_no_box: a picks.csv written before boxes existed loads with none
+    def test_old_csv_has_no_box(self, make_config: Callable[..., Path]) -> None:
+        project = open_project(make_config())
+        out = project.config.out_dir
+        out.mkdir(parents=True)
+        (out / 'picks.csv').write_text('tomogram,kind,x,y,z,pixel_size_a\nPosition_1_2,cage,1.0,2.0,3.0,5.36\n')
+        [pick] = PickStore(project).all()
+        assert pick.box_a is None
+
+    # test_set_box_and_move: set_box edits the box and notifies; moving a pick keeps its box
+    def test_set_box_and_move(self, make_config: Callable[..., Path]) -> None:
+        store = _store(make_config)
+        heard: list[int] = []
+        pick = store.add('Position_1_2', 'cage', 1.0, 2.0, 3.0)
+        store.listeners.append(lambda: heard.append(1))
+        store.set_box(pick.id, 300.0)
+        store.move(pick.id, 5.0, 6.0)
+        assert store.get(pick.id).box_a == 300.0 and len(heard) == 2
+        store.set_box(pick.id, None)
+        assert store.get(pick.id).box_a is None
+
     # test_navigation_clamps: stepping stops at both ends
     def test_navigation_clamps(self, make_config: Callable[..., Path]) -> None:
         session = Session(open_project(make_config(names=THREE)))

@@ -12,9 +12,8 @@ from PySide6.QtWidgets import (
 )
 
 # Import internal pickmix objects
-from pickmix.config import Kind
 from pickmix.estimate.registry import Fit
-from pickmix.estimates import EstimateService
+from pickmix.estimates import EstimateService, effective_box_a
 from pickmix.export import Item
 from pickmix.geometry import Parent
 from pickmix.gui.components.images import draw_box, label_image, to_pixmap
@@ -27,7 +26,7 @@ from pickmix.loader import Loader
 from pickmix.model import Pick, Session
 
 # _COLUMNS: pick table headings
-_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate']
+_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate', 'Box (Å)']
 
 # _CROP: half-width in voxels of the preview crops
 _CROP: int = 64
@@ -51,12 +50,6 @@ class Preview:
     outlines: tuple[_Rect, _Rect, _Rect]
     slabs: tuple[_Rect, _Rect] | None
     colour: str
-
-# box_a: edge in Angstrom of the box shown for a pick: the fit's, else the kind's, else the marker's
-def box_a(kind: Kind, fit: Fit | None) -> float:
-    if fit is not None and fit.box_a > 0:
-        return fit.box_a
-    return kind.box_a if kind.box_a > 0 else kind.marker_a
 
 # _COLUMN_GAP: pixels between the filters, the buttons and the count
 _COLUMN_GAP: int = 40
@@ -209,6 +202,9 @@ class ReviewTab(QWidget):
             status = fit_status(state, flag)
             tip = {'running': f'Estimate {state}', 'ok': 'Estimate is fine'}.get(status, flag)
             self.table.setItem(r, 7, status_item(status, tip))
+            self.table.setItem(r, 8, QTableWidgetItem('' if pick.box_a is None else f'{pick.box_a:.0f}'))
+        # the box column is only worth its room once a pick has a box of its own
+        self.table.setColumnHidden(8, all(p.box_a is None for p in self._shown))
         if selected in [p.id for p in self._shown]:
             self.table.selectRow([p.id for p in self._shown].index(selected))
         self.table.blockSignals(False)
@@ -326,7 +322,7 @@ class ReviewTab(QWidget):
         xy, xz, yz = self.crops(pick.tomogram, centre)
         vol = self.loader.open(pick.tomogram).result().vol
         x0, y0, z0 = _starts(centre, vol.shape)
-        half = box_a(kind, fit) / px / 2
+        half = effective_box_a(pick, kind, fit) / px / 2
         # voxel centres sit half a pixel in; box is a cube, so z extent is same as width
         cx, cy, cz = centre[0] - x0 + 0.5, centre[1] - y0 + 0.5, centre[2] - z0 + 0.5
         outlines = ((cx - half, cy - half, cx + half, cy + half), (cx - half, cz - half, cx + half, cz + half), (cy - half, cz - half, cy + half, cz + half))

@@ -7,13 +7,13 @@ import csv, itertools, os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # Import internal pickmix objects
 from pickmix.candidates import CandidateStore
 from pickmix.project import Project
 
-# Pick: one hand-picked centre; x, y, z in reconstruction voxels; id lives for the session only
+# Pick: one hand-picked centre; x, y, z in reconstruction voxels; id lives for the session only. box_a is the box edge in Angstrom the user measured for this pick, None to take it from the kind or the estimator
 @dataclass
 class Pick:
     id: int
@@ -22,8 +22,9 @@ class Pick:
     x: float
     y: float
     z: float
+    box_a: float | None = None
 
-# _Row: one picks.csv row; a missing kind column is a CaVe file, whose picks were all cages
+# _Row: one picks.csv row; a missing kind column is a CaVe file, whose picks were all cages, and a missing or empty box_a column means no box of its own
 class _Row(BaseModel):
     tomogram: str
     kind: str = 'cage'
@@ -31,6 +32,13 @@ class _Row(BaseModel):
     y: float
     z: float
     pixel_size_a: float
+    box_a: float | None = None
+
+    # _blank: an empty csv cell is no box
+    @field_validator('box_a', mode='before')
+    @classmethod
+    def _blank(cls, value: object) -> object:
+        return None if value == '' else value
 
 # Progress: where picking stopped and which tomograms have been opened, saved beside picks.csv
 class Progress(BaseModel):
@@ -58,7 +66,7 @@ class PickStore:
         if self.path.exists():
             with open(self.path, newline='') as handle:
                 for row in map(_Row.model_validate, csv.DictReader(handle)):
-                    pick = Pick(next(self._ids), row.tomogram, row.kind, row.x, row.y, row.z)
+                    pick = Pick(next(self._ids), row.tomogram, row.kind, row.x, row.y, row.z, row.box_a)
                     self._picks[pick.id] = pick
 
     # get: the pick with this id
@@ -81,9 +89,9 @@ class PickStore:
     def total(self, kind: str | None = None) -> int:
         return len(self.all(kind))
 
-    # add: new pick; saves and notifies
-    def add(self, tomogram: str, kind: str, x: float, y: float, z: float) -> Pick:
-        pick = Pick(next(self._ids), tomogram, kind, x, y, z)
+    # add: new pick, with its own box edge in Angstrom if it has one; saves and notifies
+    def add(self, tomogram: str, kind: str, x: float, y: float, z: float, *, box_a: float | None = None) -> Pick:
+        pick = Pick(next(self._ids), tomogram, kind, x, y, z, box_a)
         self._picks[pick.id] = pick
         self._changed()
         return pick
@@ -94,6 +102,11 @@ class PickStore:
         pick.x, pick.y = x, y
         if z is not None:
             pick.z = z
+        self._changed()
+
+    # set_box: the pick's own box edge in Angstrom, or None to go back to the kind's; saves and notifies
+    def set_box(self, pick_id: int, box_a: float | None) -> None:
+        self._picks[pick_id].box_a = box_a
         self._changed()
 
     # remove: delete picks; saves and notifies once
@@ -128,7 +141,7 @@ class PickStore:
             writer.writeheader()
             for p in list(self._picks.values()):
                 # unusable tomograms keep their picks; pixel size is only informative
-                writer.writerow(_Row(tomogram=p.tomogram, kind=p.kind, x=p.x, y=p.y, z=p.z, pixel_size_a=pixel.get(p.tomogram, 0.0)).model_dump())
+                writer.writerow(_Row(tomogram=p.tomogram, kind=p.kind, x=p.x, y=p.y, z=p.z, pixel_size_a=pixel.get(p.tomogram, 0.0), box_a=p.box_a).model_dump())
         os.replace(tmp, self.path)
 
     # _changed: save, then tell listeners

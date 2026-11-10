@@ -6,7 +6,8 @@ pickmix: tests for the Pick tab
 import pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QHeaderView
 from pytestqt.qtbot import QtBot
 
@@ -152,6 +153,70 @@ class TestPickTab:
         before = tab.z
         qtbot.keyClick(tab.contrast, Qt.Key.Key_Up)
         assert tab.z == before
+
+    # test_bounds_pick: two clicks make one pick halfway between them with a box the distance apart plus the kind's padding
+    def test_bounds_pick(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(kinds={**session.project.config.kinds, 'tube': Kind(marker_a=100, pick_mode='bounds', bounds_padding=0.5)})
+        tab.refresh_kinds()
+        tab._set_active('tube')
+        assert 'Two-click' in tab.help.text()
+        tab.canvas.bounds_requested.emit(1.0, 2.0, 5.0, 2.0)
+        [pick] = session.store.all('tube')
+        px = session.project.tomos[pick.tomogram].pixel_size
+        assert (pick.x, pick.y, pick.z) == (3.0, 2.0, 2.0) and abs(pick.box_a - 4 * px * 1.5) < 1e-9
+        assert tab.canvas.selected_id == pick.id
+        tab._set_active('cage')
+        assert 'Two-click' not in tab.help.text()
+
+    # test_bounds_same_voxel_ignored: two clicks on one voxel make no pick
+    def test_bounds_same_voxel_ignored(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(kinds={**session.project.config.kinds, 'tube': Kind(marker_a=100, pick_mode='bounds')})
+        tab.refresh_kinds()
+        tab._set_active('tube')
+        tab.canvas.bounds_requested.emit(2.0, 2.0, 2.4, 2.0)
+        assert session.store.total() == 0
+
+    # test_bounds_cancelled_by_kind_and_slice: changing kind or slice between the two clicks drops the first
+    def test_bounds_cancelled_by_kind_and_slice(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(kinds={**session.project.config.kinds, 'tube': Kind(marker_a=100, pick_mode='bounds')})
+        tab.refresh_kinds()
+        tab._set_active('tube')
+        tab.show()
+        qtbot.waitExposed(tab)
+        click = lambda x, y: QTest.mouseClick(tab.canvas.viewport(), Qt.MouseButton.LeftButton, pos=tab.canvas.mapFromScene(QPointF(x + 0.5, y + 0.5)))
+        click(2, 2)
+        assert tab.canvas.bounds_pending
+        tab._step_z(1)
+        assert not tab.canvas.bounds_pending
+        click(2, 2)
+        tab._set_active('cage')
+        assert not tab.canvas.bounds_pending
+
+    # test_moving_bounds_pick_keeps_box: dragging a bounds pick moves it and keeps its box
+    def test_moving_bounds_pick_keeps_box(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(kinds={**session.project.config.kinds, 'tube': Kind(marker_a=100, pick_mode='bounds')})
+        tab.refresh_kinds()
+        tab._set_active('tube')
+        tab.canvas.bounds_requested.emit(1.0, 2.0, 5.0, 2.0)
+        [pick] = session.store.all('tube')
+        box = pick.box_a
+        tab._move(pick.id, 4.0, 3.0)
+        assert (session.store.get(pick.id).x, session.store.get(pick.id).box_a) == (4.0, box)
+
+    # test_box_column_only_with_own_boxes: the pick table shows each pick's own box once any pick has one
+    def test_box_column_only_with_own_boxes(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.store.add('Position_1_2', 'cage', 1.0, 1.0, 1.0)
+        tab._fill_table()
+        assert tab.table.isColumnHidden(7)
+        session.store.add('Position_1_2', 'cage', 2.0, 1.0, 1.0, box_a=412.0)
+        tab._fill_table()
+        assert not tab.table.isColumnHidden(7)
+        assert [tab.table.item(r, 7).text() for r in range(2)] == ['', '412']
 
     # test_delete_needs_selection: Delete is greyed until a pick is selected and again once it is gone
     def test_delete_needs_selection(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:

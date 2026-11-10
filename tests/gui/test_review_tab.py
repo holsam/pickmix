@@ -14,7 +14,7 @@ from pytestqt.qtbot import QtBot
 from pickmix.config import Kind
 from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
-from pickmix.gui.tabs.review_tab import ReviewTab, box_a
+from pickmix.gui.tabs.review_tab import ReviewTab
 from pickmix.loader import Loader
 from pickmix.model import Session
 from pickmix.project import open_project
@@ -162,13 +162,13 @@ class TestReviewTab:
         assert [grid.itemAtPosition(r, c).widget() for r, c in ((0, 0), (0, 1), (1, 0), (1, 1))] == [tab.xy_label, tab.patch_canvas, tab.xz_label, tab.yz_label]
         assert tab.patch_canvas.toolTip()
 
-    # test_box_a_sources: the box shown is the fit's, else the kind's, else the marker's
-    def test_box_a_sources(self) -> None:
-        fit = Fit(x=0, y=0, z=0, radius_a=10, box_a=30.0, snr=1, z_lo=0, z_hi=0)
-        assert box_a(Kind(marker_a=20, box_a=50.0), fit) == 30.0
-        assert box_a(Kind(marker_a=20, box_a=50.0), None) == 50.0
-        assert box_a(Kind(marker_a=20), None) == 20.0
-        assert box_a(Kind(marker_a=20), fit.model_copy(update={'box_a': 0.0})) == 20.0
+    # test_preview_uses_pick_box: a pick with its box is outlined at that size
+    def test_preview_uses_pick_box(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0, box_a=10.72)
+        preview = tab.preview(pick, None)
+        px = session.project.tomos[NAME].pixel_size
+        assert preview.patch.box_px == 10.72 / px
 
     # test_preview_geometry: the patch is 1.5 times the box, centred on the pick, and the outlines surround the pick in each crop
     def test_preview_geometry(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
@@ -212,6 +212,17 @@ class TestReviewTab:
         assert (session.store.get(pick.id).x, session.store.get(pick.id).y) == (5.0, 3.0)
         qtbot.waitUntil(lambda: tab.patch_canvas.patch is not None and tab.patch_canvas.patch.pick == (5.0, 3.0), timeout=5000)
         assert tab.table.currentRow() == 0
+
+    # test_box_column_only_with_own_boxes: the review table shows each pick's own box once any shown pick has one
+    def test_box_column_only_with_own_boxes(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        tab.refresh()
+        assert tab.table.isColumnHidden(8)
+        session.store.add(NAME, 'yellow', 5.0, 3.0, 2.0, box_a=412.0)
+        tab.refresh()
+        assert not tab.table.isColumnHidden(8)
+        assert sorted(tab.table.item(r, 8).text() for r in range(2)) == ['', '412']
 
     # test_double_click_opens: double-clicking a row asks to open the pick
     def test_double_click_opens(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:

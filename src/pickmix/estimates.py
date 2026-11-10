@@ -9,10 +9,22 @@ from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from typing import Literal
 
 # Import internal pickmix objects
+from pickmix.config import Kind
 from pickmix.estimate.registry import ESTIMATORS, Fit
 from pickmix.loader import Loader
 from pickmix.model import Pick, PickStore, Session
 from pickmix.project import Project
+
+# _PICKING: kind settings about how a pick is made, which do not change how it is estimated
+_PICKING: set[str] = {'pick_mode', 'bounds_padding'}
+
+# effective_box_a: the box edge in Angstrom for a pick: its own if it has one, else the fit's, else the kind's, else the marker's
+def effective_box_a(pick: Pick, kind: Kind, fit: Fit | None) -> float:
+    if pick.box_a is not None:
+        return pick.box_a
+    if fit is not None and fit.box_a > 0:
+        return fit.box_a
+    return kind.box_a if kind.box_a > 0 else kind.marker_a
 
 # _Row: one estimates.csv row, the fit plus the pick it was computed for and a digest of the settings used
 class _Row(Fit):
@@ -50,7 +62,7 @@ class EstimateStore:
             self._digests = (config, {})
         cache = self._digests[1]
         if kind not in cache and kind in config.kinds:
-            blob = json.dumps({'kind': config.kinds[kind].model_dump(), 'ring': config.ring.model_dump(), 'source': config.source}, sort_keys=True)
+            blob = json.dumps({'kind': config.kinds[kind].model_dump(exclude=_PICKING), 'ring': config.ring.model_dump(), 'source': config.source}, sort_keys=True)
             cache[kind] = hashlib.sha1(blob.encode()).hexdigest()[:12]
         return cache.get(kind)
 
@@ -61,9 +73,10 @@ class EstimateStore:
             return 'missing'
         return 'ok' if row.digest == self.digest(pick.kind) else 'stale'
 
-    # get: the fit for a pick if it is current
+    # get: the fit for a pick if it is current, with pick's own box edge in place of estimator's when it has one
     def get(self, pick: Pick) -> Fit | None:
-        return self._rows.get(_key(pick.tomogram, pick.kind, pick.x, pick.y, pick.z)) if self.state(pick) == 'ok' else None
+        fit = self._rows.get(_key(pick.tomogram, pick.kind, pick.x, pick.y, pick.z)) if self.state(pick) == 'ok' else None
+        return fit if fit is None or pick.box_a is None else fit.model_copy(update={'box_a': pick.box_a})
 
     # put: store a fit for the pick as it was when asked, save, and tell listeners
     def put(self, pick: Pick, fit: Fit, digest: str) -> None:
