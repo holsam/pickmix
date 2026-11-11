@@ -1,6 +1,6 @@
 [project]
 name = "pickmix"
-version = "0.4.1"
+version = "0.5.0"
 description = "Multi-kind particle picking GUI for cryo-ET sub-tomogram averaging workflows."
 readme = "README.md"
 authors = [
