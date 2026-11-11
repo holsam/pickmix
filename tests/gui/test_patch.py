@@ -106,6 +106,19 @@ class TestPatchCanvas:
         assert canvas.box_rect()[2] == 30.0 and canvas.dot_position() == (30.5, 30.5)
         assert len(canvas.scene().items()) == 3
 
+    # test_axis_drawn_through_box: a filament direction draws a line along it through the box, which moves with the box
+    def test_axis_drawn_through_box(self, qtbot: QtBot) -> None:
+        patch = _patch(psi_deg=45.0)
+        canvas = _canvas(qtbot, patch)
+        assert abs(canvas.axis_angle() - 45.0) < 1e-6 and len(canvas.scene().items()) == 4
+        start, end = _view_pos(canvas, patch, 130, 230), _view_pos(canvas, patch, 135, 227)
+        QTest.mousePress(canvas.viewport(), Qt.MouseButton.LeftButton, pos=start)
+        QTest.mouseMove(canvas.viewport(), end)
+        assert abs(canvas._axis.pos().x() - canvas._box.pos().x()) < 1e-9 and canvas._axis.pos().x() > 32.5
+        QTest.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, pos=end)
+        canvas.set_patch(_patch())
+        assert canvas.axis_angle() is None and len(canvas.scene().items()) == 3
+
     # test_clear: clearing removes the box and dot and stops drags
     def test_clear(self, qtbot: QtBot) -> None:
         canvas = _canvas(qtbot)

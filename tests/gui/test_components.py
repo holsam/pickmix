@@ -169,6 +169,31 @@ class TestCanvas:
             QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 20, 15))
         assert not canvas.bounds_pending
 
+    # test_filament_axis: a fit with a direction is drawn as a line along it, only on the slices of the fit and with the rings
+    def test_filament_axis(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        fit = FitView(20, 15, 5, None, 16.0, 3, 7, 30.0)
+        canvas.set_markers([Marker(1, 20, 15, 5, 4.0, 'yellow', fit=fit), Marker(2, 5, 5, 5, 4.0, 'yellow', fit=FitView(5, 5, 5, 4.0, 16.0, 3, 7))])
+        canvas.set_z(5)
+        assert canvas.axis_visible(1) and abs(canvas.axis_angle(1) - 30.0) < 1e-6 and canvas.axis_angle(2) is None and not canvas.axis_visible(2)
+        canvas.set_z(9)
+        assert not canvas.axis_visible(1)
+        canvas.set_z(5)
+        canvas.set_overlay(rings=False, boxes=True)
+        assert not canvas.axis_visible(1)
+        canvas.set_overlay(rings=True, boxes=True)
+        assert canvas.axis_visible(1)
+
+    # test_axis_removed_with_markers: replacing the markers removes the axis items
+    def test_axis_removed_with_markers(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_markers([Marker(1, 20, 15, 5, 4.0, 'yellow', fit=FitView(20, 15, 5, None, 16.0, 3, 7, 90.0))])
+        count = len(canvas.scene().items())
+        canvas.set_markers([Marker(1, 20, 15, 5, 4.0, 'yellow', fit=FitView(20, 15, 5, None, 16.0, 3, 7, 90.0))])
+        assert len(canvas.scene().items()) == count
+        canvas.set_markers([])
+        assert canvas.axis_angle(1) is None
+
     # test_wheel_scrolls_z: a wheel notch emits one z step
     def test_wheel_scrolls_z(self, qtbot: QtBot) -> None:
         canvas = _canvas(qtbot)

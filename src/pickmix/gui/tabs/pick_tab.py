@@ -551,7 +551,8 @@ class PickTab(QWidget):
                 continue
             for p in self.session.store.picks(name, kind_name):
                 fit = self.service.store.get(p) if self.service else None
-                view = None if fit is None else FitView(fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' else None, fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi)
+                # a filament is drawn as its axis
+                view = None if fit is None else FitView(fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' and fit.psi_deg is None else None, fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi, fit.psi_deg)
                 parent = self._matched.get(kind_name, {}).get(p.id)
                 unmatched = kind.parent is not None and fit is not None and parent is None
                 normal = None if parent is None else (parent.normal[0], parent.normal[1])
