@@ -430,6 +430,17 @@ class TestSettingsPane:
         pane.filament_section.toggle.setChecked(True)
         assert not pane.filament_form.isHidden()
 
+    # test_validation_value_autosaves: a committed validation number is written, the others are kept, and the section starts collapsed
+    def test_validation_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        assert pane.validation_form.isHidden()
+        pane.validation_section.toggle.setChecked(True)
+        assert not pane.validation_form.isHidden()
+        with qtbot.waitSignal(pane.config_saved):
+            pane.validation_form._boxes['flag_deviations'][0].setValue(8.0)
+        config = load_config(path)
+        assert config.validation.flag_deviations == 8.0 and config.validation.min_picks == 10 and config.validation.trim_fraction == 0.2
+
     # test_no_save_button: there is nothing to press
     def test_no_save_button(self, qtbot: QtBot) -> None:
         pane = SettingsPane()
@@ -480,6 +491,7 @@ class TestSettingsPane:
         closed = pane.minimumSizeHint().width()
         pane.ring_section.toggle.setChecked(True)
         pane.filament_section.toggle.setChecked(True)
+        pane.validation_section.toggle.setChecked(True)
         assert pane.minimumSizeHint().width() == closed
 
 # TestTomoPane: tomogram dock
