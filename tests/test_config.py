@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 # Import internal pickmix objects
-from pickmix.config import Config, FilamentParams, Kind, MatchParams, RingParams, load_config, save_config
+from pickmix.config import Config, FilamentParams, Kind, MatchParams, RingParams, ValidationParams, load_config, save_config
 
 # _config: a config with absolute paths, so it survives a save and load unchanged, and the given kinds
 def _config(**kinds: Kind) -> Config:
@@ -94,6 +94,20 @@ class TestConfig:
             FilamentParams(z_fraction=1.5)
         with pytest.raises(ValidationError):
             FilamentParams(box_from='both')
+
+    # test_validation_params_documented: every validation setting has a title and a description for the settings form
+    def test_validation_params_documented(self) -> None:
+        assert all(f.title and f.description for f in ValidationParams.model_fields.values())
+
+    # test_validation_round_trip: validation settings survive a save and load, and out of range ones are refused
+    def test_validation_round_trip(self, tmp_path: Path) -> None:
+        config = _config().replace(validation=ValidationParams(min_picks=20, flag_deviations=4.0))
+        save_config(config, tmp_path / 'config.toml')
+        assert load_config(tmp_path / 'config.toml').validation == ValidationParams(min_picks=20, flag_deviations=4.0)
+        with pytest.raises(ValidationError):
+            ValidationParams(trim_fraction=0.6)
+        with pytest.raises(ValidationError):
+            ValidationParams(min_picks=1)
 
     # test_match_params_documented: every match setting has a title and a description for the settings form
     def test_match_params_documented(self) -> None:
