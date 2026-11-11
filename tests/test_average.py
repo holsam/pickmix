@@ -7,7 +7,7 @@ import mrcfile, numpy as np, pytest
 from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.average import average_kind, save_average
+from pickmix.average import average_kind, box_images, save_average
 from pickmix.config import Config, Kind
 from pickmix.estimate.registry import Fit
 from pickmix.model import Pick
@@ -147,3 +147,48 @@ class TestAverage:
             img = crop_box(vol, (20, 20, x), 20)[10 - 6 : 10 + 6 + 1].mean(axis=0)
             expected.append((img - img.mean()) / img.std())
         assert np.allclose(r.overall, np.mean(expected, axis=0))
+
+
+# _sphere_tomogram: a 60-voxel cube at 5 A with one bright sphere of the given radius in voxels at its middle, in noise
+def _sphere_tomogram(path: Path, name: str, radius: float) -> Tomogram:
+    rng = np.random.default_rng(11)
+    vol = rng.normal(0.0, 0.1, (60, 60, 60)).astype(np.float32)
+    zz, yy, xx = np.mgrid[:60, :60, :60]
+    vol[np.hypot(np.hypot(xx - 30, yy - 30), zz - 30) <= radius] += 1.0
+    with mrcfile.new(path / f'{name}.mrc') as mrc:
+        mrc.set_data(vol)
+        mrc.voxel_size = 5.0
+    return Tomogram(name, name, path / f'{name}.mrc', None, 5.0, (60, 60, 60), 5.0 / 4, (240, 240, 240))
+
+# TestBoxImages: the normalised box images behind the average
+class TestBoxImages:
+    # test_images_match_average: the images come in the order the average takes them, normalised, and their mean is the average
+    def test_images_match_average(self, tmp_path: Path) -> None:
+        tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20)]), 'U': _tomogram(tmp_path, 'U', [(20, 28, 20)])}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        items = [_item(1, 'T', 12, 20, 20), _item(3, 'U', 20, 28, 20), _item(2, 'T', 28, 20, 20)]
+        pairs, box = box_images('yellow', Kind(marker_a=60, box_a=100), items, tomos, config)
+        assert [p.id for p, _ in pairs] == [1, 2, 3] and box == 20
+        assert all(abs(img.mean()) < 1e-5 and abs(img.std() - 1.0) < 1e-4 for _, img in pairs)
+        assert np.allclose(np.mean([img for _, img in pairs], axis=0), average_kind('yellow', Kind(marker_a=60, box_a=100), items, tomos, config).overall)
+
+    # test_own_box_resampled: a pick with a box of its own is cut at that size and resampled, so a big and a small particle look alike
+    def test_own_box_resampled(self, tmp_path: Path) -> None:
+        tomos = {'S': _sphere_tomogram(tmp_path, 'S', 4.0), 'B': _sphere_tomogram(tmp_path, 'B', 8.0)}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        kind = Kind(marker_a=100, pick_mode='bounds')
+
+        def items(own: bool) -> list[tuple[Pick, Fit]]:
+            small = Pick(1, 'S', 'yellow', 30, 30, 30, box_a=100.0 if own else None)
+            big = Pick(2, 'B', 'yellow', 30, 30, 30, box_a=200.0 if own else None)
+            return [
+                (small, Fit(x=30, y=30, z=30, radius_a=20.0, box_a=100.0, snr=0, z_lo=30, z_hi=30)),
+                (big, Fit(x=30, y=30, z=30, radius_a=40.0, box_a=200.0, snr=0, z_lo=30, z_hi=30)),
+            ]
+
+        def agreement(own: bool) -> float:
+            (_, a), (_, b) = box_images('yellow', kind, items(own), tomos, config)[0]
+            return float((a * b).mean())
+
+        assert box_images('yellow', kind, items(True), tomos, config)[1] == 40
+        assert agreement(True) > 0.9 and agreement(True) > agreement(False) + 0.2

@@ -8,12 +8,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from scipy import ndimage
+from skimage.transform import resize
 from skimage.util import montage
 
 # Import internal pickmix objects
 from pickmix.config import Config, Kind
 from pickmix.estimate.registry import Fit
 from pickmix.export import Item
+from pickmix.model import Pick
 from pickmix.extract import box_pixels, crop_box, pixel_size_of
 from pickmix.utils.io import Tomogram, load_volume
 
@@ -42,26 +44,39 @@ class AverageResult:
     # whether any box was turned so its filament axis lies along x
     aligned: bool = False
 
-# average_kind: cut a box at every item, project the central slab of each along z (slab of fit for filament, oriented so axis lies about x), normalise it, and average per tomogram and overall; nothing is written until save_average
-def average_kind(
-    name: str, kind: Kind, items: list[Item], tomos: dict[str, Tomogram], config: Config, *, log: Callable[[str], None] = lambda _: None) -> AverageResult:
+# box_images: the normalised projection of every item's box, tomogram by tomogram in order of first appearance, and the box edge in pixels. Each is the central slab of a box cut at the fit (the planes of the fit, turned so the axis lies along x, for a filament). A pick with a box of its own is cut at that size and resampled to the kind's box, so picks of different sizes can be compared
+def box_images(
+    name: str, kind: Kind, items: list[Item], tomos: dict[str, Tomogram], config: Config,
+    *, log: Callable[[str], None] = lambda _: None,
+) -> tuple[list[tuple[Pick, np.ndarray]], int]:
     if not items:
         raise ValueError(f'kind {name!r}: nothing to average')
     px = pixel_size_of(name, items, tomos)
     box = box_pixels(kind, items, px)
-    # slab as thick as the particle, so the projection is not washed out by empty box
-    half = min(max(round(kind.marker_a / 2 / px), 1), box // 2)
-    images: dict[str, list[np.ndarray]] = {}
-    origins: list[str] = []
+    out: list[tuple[Pick, np.ndarray]] = []
     for tomogram in dict.fromkeys(p.tomogram for p, _ in items):
         vol = load_volume(tomos[tomogram], source=config.source)
+        count = 0
         for p, f in items:
             if p.tomogram != tomogram:
                 continue
-            img = _box_image(vol, f, box, half)
-            images.setdefault(tomogram, []).append((img - img.mean()) / (img.std() or 1.0))
-            origins.append(f'{len(images[tomogram])} ({tomogram})')
-        log(f'{name} {tomogram}: {len(images[tomogram])} boxes')
+            img = _sized_image(vol, p, f, box, kind, px)
+            out.append((p, (img - img.mean()) / (img.std() or 1.0)))
+            count += 1
+        log(f'{name} {tomogram}: {count} boxes')
+    return out, box
+
+# average_kind: cut a box at every item, project the central slab of each along z (the slab of the fit for a filament, turned so its axis lies along x), normalise it, and average per tomogram and overall; nothing is written until save_average
+def average_kind(
+    name: str, kind: Kind, items: list[Item], tomos: dict[str, Tomogram], config: Config,
+    *, log: Callable[[str], None] = lambda _: None,
+) -> AverageResult:
+    pairs, box = box_images(name, kind, items, tomos, config, log=log)
+    images: dict[str, list[np.ndarray]] = {}
+    origins: list[str] = []
+    for pick, img in pairs:
+        images.setdefault(pick.tomogram, []).append(img)
+        origins.append(f'{len(images[pick.tomogram])} ({pick.tomogram})')
     everything = [img for imgs in images.values() for img in imgs]
     chosen = np.linspace(0, len(everything) - 1, min(len(everything), _MONTAGE_MAX)).astype(int)
     grid = math.ceil(math.sqrt(len(chosen)))
@@ -80,6 +95,14 @@ def average_kind(
         any(f.psi_deg is not None for _, f in items),
     )
     return result
+
+# _sized_image: the projection of one item's box at the kind's box edge. A pick with a box of its own is cut at that size, with the slab scaled to match, and resampled to the kind's box
+def _sized_image(vol: np.ndarray, pick: Pick, fit: Fit, box: int, kind: Kind, px: float) -> np.ndarray:
+    own = box if pick.box_a is None else max(int(round(pick.box_a / px / 2)) * 2, 2)
+    # slab as thick as the particle, so the projection is not washed out by empty box
+    half = min(max(round(kind.marker_a / 2 / px * own / box), 1), own // 2)
+    img = _box_image(vol, fit, own, half)
+    return img if own == box else resize(img, (box, box), order=1, anti_aliasing=own > box, preserve_range=True).astype(np.float32)
 
 # save_average: clear the kind's old PNGs and write the overall mean and montage, and each tomogram's mean when asked; returns the paths written
 def save_average(result: AverageResult, *, per_tomogram: bool = False) -> list[Path]:
