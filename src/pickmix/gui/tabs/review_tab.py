@@ -330,7 +330,7 @@ class ReviewTab(QWidget):
         edge = max(math.ceil(_PATCH_SCALE * 2 * half), 4)
         sl = self.loader.slice(pick.tomogram, min(max(round(centre[2]), 0), vol.shape[0] - 1))
         left, top = round(centre[0]) - edge // 2, round(centre[1]) - edge // 2
-        patch = Patch(_padded(sl, left, top, edge), (left, top), pick.id, (pick.x, pick.y), (centre[0], centre[1]), 2 * half, kind.colour, (vol.shape[2], vol.shape[1]))
+        patch = Patch(_padded(sl, left, top, edge), (left, top), pick.id, (pick.x, pick.y), (centre[0], centre[1]), 2 * half, kind.colour, (vol.shape[2], vol.shape[1]), None if fit is None else fit.psi_deg)
         return Preview(xy, xz, yz, patch, outlines, slabs, kind.colour)
 
     # crops: (xy, xz, yz) arrays around a centre: the slice through it, and the planes through it along z at its y and at its x

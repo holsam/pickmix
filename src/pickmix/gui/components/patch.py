@@ -7,7 +7,7 @@ import math, numpy as np
 from dataclasses import dataclass
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPen, QPixmap, QResizeEvent
-from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 # Import internal pickmix objects
 from pickmix.gui.components.images import to_image
@@ -37,6 +37,8 @@ class Patch:
     colour: str
     # tomogram width and height in voxels
     bounds: tuple[int, int]
+    # direction of a filament in degrees from the x axis towards y, drawn through the box centre
+    psi_deg: float | None = None
 
 # PatchCanvas: a crop of a slice with pick box as translucent hatched square and pick as a small dot
 class PatchCanvas(QGraphicsView):
@@ -51,6 +53,7 @@ class PatchCanvas(QGraphicsView):
         self._pixmap: QGraphicsPixmapItem = self._scene.addPixmap(QPixmap())
         self._box: QGraphicsRectItem | None = None
         self._dot: QGraphicsEllipseItem | None = None
+        self._axis: QGraphicsLineItem | None = None
         self._patch: Patch | None = None
         self._drag: QPointF | None = None
         self._moved = False
@@ -78,6 +81,10 @@ class PatchCanvas(QGraphicsView):
             return None
         rect = self._box.rect().translated(self._box.pos())
         return rect.x(), rect.y(), rect.width(), rect.height()
+    
+    # axis_angle: the direction in degrees of the filament axis drawn, from the x axis towards y, None if there is none
+    def axis_angle(self) -> float | None:
+        return None if self._axis is None else math.degrees(math.atan2(self._axis.line().dy(), self._axis.line().dx())) % 180.0
 
     # dot_position: the dot in scene pixels, None with no crop
     def dot_position(self) -> tuple[float, float] | None:
@@ -89,9 +96,10 @@ class PatchCanvas(QGraphicsView):
         self._drag, self._moved, self._offset = None, False, QPointF(0, 0)
         self._pixmap.setPixmap(QPixmap.fromImage(to_image(patch.pixels)))
         self._scene.setSceneRect(0, 0, patch.pixels.shape[1], patch.pixels.shape[0])
-        for item in (self._box, self._dot):
+        for item in (self._box, self._dot, self._axis):
             if item is not None:
                 self._scene.removeItem(item)
+        self._axis = None
         colour = QColor(patch.colour)
         half = patch.box_px / 2
         self._box = QGraphicsRectItem(-half, -half, 2 * half, 2 * half)
@@ -108,6 +116,16 @@ class PatchCanvas(QGraphicsView):
         self._dot.setZValue(2)
         self._scene.addItem(self._box)
         self._scene.addItem(self._dot)
+        if patch.psi_deg is not None:
+            reach = patch.box_px / 2
+            dx, dy = math.cos(math.radians(patch.psi_deg)) * reach, math.sin(math.radians(patch.psi_deg)) * reach
+            self._axis = QGraphicsLineItem(-dx, -dy, dx, dy)
+            axis_pen = QPen(colour)
+            axis_pen.setCosmetic(True)
+            axis_pen.setWidth(2)
+            self._axis.setPen(axis_pen)
+            self._axis.setZValue(1)
+            self._scene.addItem(self._axis)
         self._place()
         self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
@@ -115,10 +133,10 @@ class PatchCanvas(QGraphicsView):
     def clear(self) -> None:
         self._patch = None
         self._pixmap.setPixmap(QPixmap())
-        for item in (self._box, self._dot):
+        for item in (self._box, self._dot, self._axis):
             if item is not None:
                 self._scene.removeItem(item)
-        self._box = self._dot = None
+        self._box = self._dot = self._axis = None
 
     # mousePressEvent: grab dot or box
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -166,6 +184,8 @@ class PatchCanvas(QGraphicsView):
         assert self._patch is not None and self._box is not None and self._dot is not None
         self._box.setPos(self._scene_pos(*self._patch.box_centre) + self._offset)
         self._dot.setPos(self._scene_pos(*self._patch.pick) + self._offset)
+        if self._axis is not None:
+            self._axis.setPos(self._box.pos())
 
     # _hit: whether a scene position is on dot or inside box
     def _hit(self, pos: QPointF) -> bool:

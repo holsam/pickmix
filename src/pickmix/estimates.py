@@ -6,6 +6,7 @@ pickmix: per-pick estimates
 import csv, hashlib, json, os, threading
 from collections.abc import Callable
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
+from pydantic import field_validator
 from typing import Literal
 
 # Import internal pickmix objects
@@ -35,6 +36,12 @@ class _Row(Fit):
     pick_z: float
     digest: str
 
+    # _blank: an empty csv cell is no direction
+    @field_validator('psi_deg', mode='before')
+    @classmethod
+    def _blank(cls, value: object) -> object:
+        return None if value == '' else value
+
 # _Key: tomogram, kind and rounded coordinates of a pick; picks have no stable id across sessions
 type _Key = tuple[str, str, float, float, float]
 
@@ -62,7 +69,10 @@ class EstimateStore:
             self._digests = (config, {})
         cache = self._digests[1]
         if kind not in cache and kind in config.kinds:
-            blob = json.dumps({'kind': config.kinds[kind].model_dump(exclude=_PICKING), 'ring': config.ring.model_dump(), 'source': config.source}, sort_keys=True)
+            parts = {'kind': config.kinds[kind].model_dump(exclude=_PICKING), 'ring': config.ring.model_dump(), 'source': config.source}
+            if config.kinds[kind].estimator == 'filament':
+                parts['filament'] = config.filament.model_dump()
+            blob = json.dumps(parts, sort_keys=True)
             cache[kind] = hashlib.sha1(blob.encode()).hexdigest()[:12]
         return cache.get(kind)
 

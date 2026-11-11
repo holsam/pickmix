@@ -192,6 +192,13 @@ class TestReviewTab:
         assert preview.patch.pick == (4.0, 3.0) and preview.patch.box_centre == (5.0, 3.0)
         assert preview.slabs is not None and (preview.slabs[0][1], preview.slabs[0][3]) == (1, 4)
 
+    # test_patch_shows_filament_axis: the patch of a pick with a filament fit carries the fit's direction
+    def test_patch_shows_filament_axis(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, _ = setup()
+        pick = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        fit = Fit(x=4.0, y=3.0, z=2.0, radius_a=10, box_a=21.44, snr=1, z_lo=1, z_hi=3, psi_deg=120.0)
+        assert tab.preview(pick, fit).patch.psi_deg == 120.0 and tab.preview(pick, None).patch.psi_deg is None
+
     # test_patch_shown: selecting a pick shows its patch
     def test_patch_shown(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, _ = setup()

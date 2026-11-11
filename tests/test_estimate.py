@@ -8,6 +8,7 @@ from pathlib import Path
 
 # Import internal pickmix objects
 from pickmix.config import Config, Kind, RingParams
+from pickmix.estimate.common import crop, prepare
 from pickmix.estimate.registry import ESTIMATORS
 from pickmix.estimate.ring import ring_snr
 
@@ -75,3 +76,22 @@ class TestEstimateNone:
         kind = Kind(marker_a=600, box_a=900, estimator='ring')
         fit = ESTIMATORS['ring'](_volume(), (165, 174, 36), kind, PX, _config(cage=kind))
         assert fit.box_a == 900
+
+# TestEstimateCommon: helpers shared by the slab estimators
+class TestEstimateCommon:
+    # test_crop_pads_and_masks: a crop that leaves the volume is edge padded, the mask marks real voxels, and z is clipped
+    def test_crop_pads_and_masks(self) -> None:
+        vol = np.arange(5 * 6 * 7, dtype=np.float32).reshape(5, 6, 7)
+        sub, valid, zlo = crop(vol, -3, 2, 1, 1, 3)
+        assert sub.shape == (3, 7, 7) and zlo == 0
+        assert valid.shape == (7, 7) and valid.sum() == 5 * 5 and not valid[0].any()
+        assert np.array_equal(sub[:, 2:, 2:], vol[0:3, 0:5, 0:5])
+        assert np.array_equal(sub[:, 0, 3], sub[:, 2, 3])
+
+    # test_prepare_flattens: a slow ramp is removed away from the edges and a narrow feature stays
+    def test_prepare_flattens(self) -> None:
+        yy, xx = np.mgrid[:600, :600]
+        img = (0.05 * xx).astype(np.float32)
+        img[295:306, 195:206] += 5.0
+        out = prepare(img, 8.0, 500.0, PX)
+        assert abs(out[300, 400]) < 0.5 and out[300, 200] > out[300, 400] + 1.0

@@ -14,6 +14,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.candidates import Hit
 from pickmix.config import Kind
+from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService
 from pickmix.gui.tabs.pick_tab import PickTab
 from pickmix.loader import Loader
@@ -217,6 +218,19 @@ class TestPickTab:
         tab._fill_table()
         assert not tab.table.isColumnHidden(7)
         assert [tab.table.item(r, 7).text() for r in range(2)] == ['', '412']
+
+    # test_filament_drawn_as_axis: a fit with a direction shows as an axis line and no ring
+    def test_filament_drawn_as_axis(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        session.project.update(kinds={**session.project.config.kinds, 'rod': Kind(marker_a=100, box_a=100, estimator='filament')})
+        tab.refresh_kinds()
+        pick = session.store.add('Position_1_2', 'rod', 4.0, 3.0, 2.0)
+        fit = Fit(x=4.0, y=3.0, z=2.0, radius_a=20.0, box_a=100.0, snr=9.0, z_lo=1, z_hi=3, psi_deg=60.0)
+        # let the service finish its own estimate of this tiny volume first, so it cannot replace this fit
+        qtbot.waitUntil(lambda: tab.service.pending == 0, timeout=5000)
+        tab.service.store.put(pick, fit, tab.service.store.digest('rod'))
+        qtbot.waitUntil(lambda: tab.canvas.axis_angle(pick.id) is not None, timeout=5000)
+        assert abs(tab.canvas.axis_angle(pick.id) - 60.0) < 1e-6 and tab.canvas.overlay_visible(pick.id)[0] is False
 
     # test_delete_needs_selection: Delete is greyed until a pick is selected and again once it is gone
     def test_delete_needs_selection(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:

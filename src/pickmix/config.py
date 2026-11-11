@@ -55,6 +55,31 @@ class RingParams(BaseModel):
     # box edge as a multiple of the ring diameter when the kind takes its box from the estimator
     box_margin: float = Field(default=1.25, title='Box margin (× diameter)', description='Box edge as a multiple of the ring diameter, for kinds that take their box from the estimator.')
 
+# FilamentParams: settings of the filament estimator, all lengths in Angstrom; title and description feed the settings form
+class FilamentParams(BaseModel):
+    # filament width as full width at half maximum, swept on a geometric ladder
+    width_range_a: tuple[float, float] = Field(default=(60.0, 300.0), title='Width range (Å)', description='Narrowest and widest filament width (full width at half maximum) looked for.')
+    width_steps: int = Field(default=5, ge=1, title='Width steps', description='How many widths are tried across the range.')
+    # how far from the pick the axis may be, and the longest stretch used to find direction and length
+    search_range_a: float = Field(default=300.0, gt=0, title='Search range (Å)', description='How far the filament axis may be from the pick in xy.')
+    max_length_a: float = Field(default=2000.0, gt=0, title='Max length (Å)', description='Longest stretch of filament used to find its direction and length.')
+    # z slab about the pick for the first look, and how far the z extent is searched
+    slab_half_a: float = Field(default=200.0, gt=0, title='First slab half-thickness (Å)', description='Half-thickness of the slab about the pick used to find the filament axis.')
+    z_max_half_a: float = Field(default=600.0, gt=0, title='Max z half-extent (Å)', description='The z extent of the filament is looked for this far above and below the pick.')
+    z_fraction: float = Field(default=0.5, gt=0, lt=1, title='Z extent threshold', description='A plane counts as filament while its contrast stays above this fraction of the best plane.')
+    # preparation of each projection
+    smooth_sigma_a: float = Field(default=8.0, gt=0, title='Smoothing σ (Å)', description='Light Gaussian smoothing of each projection.')
+    highpass_sigma_a: float = Field(default=600.0, gt=0, title='High-pass σ (Å)', description='Gaussian width removed from each projection to flatten the background.')
+    # share of the strongest ridge response kept when tracing the filament
+    ridge_fraction: float = Field(default=0.4, gt=0, lt=1, title='Ridge threshold', description='Pixels with at least this fraction of the strongest ridge response are traced as filament.')
+    # box
+    box_margin: float = Field(default=1.25, gt=0, title='Box margin (× width)', description='Box edge as a multiple of the filament width, for kinds that take their box from the estimator.')
+    min_box_a: float = Field(default=100.0, gt=0, title='Smallest box (Å)', description='The estimated box is never smaller than this.')
+    box_from: Literal['width', 'segment'] = Field(default='segment', title='Box from', description="'segment' sizes the box to the measured length of filament (up to Max length), so it holds the whole stretch, but it is large, varies with the length, and is mostly empty for a thin filament. 'width' sizes the box to the filament width times the margin, which is small and the same everywhere and suits tiling particles along the axis, but a long filament runs out of the box.")
+    # flags
+    weak_snr: float = Field(default=3.0, ge=0, title='Weak below SNR', description="Fits with an SNR below this are flagged 'weak'.")
+    min_elongation: float = Field(default=2.0, ge=1, title='Short below elongation', description="Traced stretches whose length is less than this many times their width are flagged 'short', as they are probably a spot and not a filament.")
+
 # MatchParams: settings of the template matching scan; title and description feed the settings form
 class MatchParams(BaseModel):
     # template is binned until its edge is about this many pixels, which sets the speed of the scan
@@ -92,6 +117,7 @@ class Config(BaseModel):
     # most memory the slice cache may hold; scrolling is smooth where a whole tomogram fits
     cache_mb: int = Field(default=2048, ge=64, title='Slice cache (MB)', description='Most memory the viewer may use to keep slices of tomograms ready for scrolling.')
     ring: RingParams = Field(default_factory=RingParams)
+    filament: FilamentParams = Field(default_factory=FilamentParams)
     match: MatchParams = Field(default_factory=MatchParams)
     kinds: dict[str, Kind] = Field(default_factory=_default_kinds)
     # kind chosen by each of the keys 1 to 9, '' for an unused key

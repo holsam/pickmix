@@ -188,7 +188,8 @@ class AveragePane(QGroupBox):
         self.run_button.setEnabled(True)
         self.save_button.setEnabled(True)
         self.spinner.set_status(None)
-        notify(f'Averaged {result.count} boxes of {result.box_px} px (Save to write them)')
+        turned = '. Filaments are oriented along x, ends are not told apart' if result.aligned else ''
+        notify(f'Averaged {result.count} boxes of {result.box_px} px (Save to write them){turned}')
         self.montage_label.set_render(lambda width, height: self._tiled(result, width, height))
         rows = [('overall', result.count), *((t, result.counts[t]) for t in self._names)]
         self.results_table.setRowCount(len(rows))

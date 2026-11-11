@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 # Import internal pickmix objects
-from pickmix.config import Config, Kind, MatchParams, RingParams, load_config, save_config
+from pickmix.config import Config, FilamentParams, Kind, MatchParams, RingParams, load_config, save_config
 
 # _config: a config with absolute paths, so it survives a save and load unchanged, and the given kinds
 def _config(**kinds: Kind) -> Config:
@@ -71,6 +71,29 @@ class TestConfig:
     def test_ring_params_documented(self) -> None:
         for name, field in RingParams.model_fields.items():
             assert field.title and field.description, name
+
+    # test_filament_params_documented: every filament setting has a title and a description for the settings form
+    def test_filament_params_documented(self) -> None:
+        assert all(f.title and f.description for f in FilamentParams.model_fields.values())
+
+    # test_box_from_tooltip_gives_trade_off: the description of box_from says what each choice costs
+    def test_box_from_tooltip_gives_trade_off(self) -> None:
+        text = FilamentParams.model_fields['box_from'].description
+        assert 'segment' in text and 'width' in text and 'mostly empty' in text and 'runs out of the box' in text
+        assert FilamentParams().box_from == 'segment'
+
+    # test_filament_round_trip: filament settings survive a save and load
+    def test_filament_round_trip(self, tmp_path: Path) -> None:
+        config = _config().replace(filament=FilamentParams(width_range_a=(80.0, 200.0), box_from='width'))
+        save_config(config, tmp_path / 'config.toml')
+        assert load_config(tmp_path / 'config.toml').filament == FilamentParams(width_range_a=(80.0, 200.0), box_from='width')
+
+    # test_filament_params_rejected: out of range settings are refused
+    def test_filament_params_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            FilamentParams(z_fraction=1.5)
+        with pytest.raises(ValidationError):
+            FilamentParams(box_from='both')
 
     # test_match_params_documented: every match setting has a title and a description for the settings form
     def test_match_params_documented(self) -> None:

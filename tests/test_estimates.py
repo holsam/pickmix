@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.config import Kind
+from pickmix.config import FilamentParams, Kind
 from pickmix.estimate.registry import Fit
 from pickmix.estimates import EstimateService, EstimateStore, effective_box_a
 from pickmix.loader import Loader
@@ -62,6 +62,17 @@ class TestEstimates:
         service.session.project.update(kinds={**service.session.project.config.kinds, 'yellow': Kind(marker_a=100, box_a=100, pick_mode='bounds', bounds_padding=0.5)})
         assert service.store.state(pick) == 'ok'
 
+    # test_filament_settings_leave_other_kinds_current: editing filament settings makes only filament kinds stale
+    def test_filament_settings_leave_other_kinds_current(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        service.session.project.update(filament=FilamentParams(width_range_a=(80.0, 200.0)))
+        assert service.store.state(pick) == 'ok'
+        service.session.project.update(kinds={**service.session.project.config.kinds, 'rod': Kind(marker_a=100, box_a=100, estimator='filament')})
+        first = service.store.digest('rod')
+        service.session.project.update(filament=FilamentParams(width_range_a=(90.0, 200.0)))
+        assert service.store.digest('rod') != first
+
     # test_settings_change_makes_stale: changing the kind invalidates its fits until they are recomputed
     def test_settings_change_makes_stale(self, service: EstimateService) -> None:
         pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
@@ -77,6 +88,28 @@ class TestEstimates:
         pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
         _wait(lambda: service.store.state(pick) == 'ok')
         assert EstimateStore(service.session.project, service.session.store).state(pick) == 'ok'
+
+    # test_direction_round_trip: a fit's direction survives the csv, and fits without one stay without
+    def test_direction_round_trip(self, service: EstimateService) -> None:
+        a = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        b = service.session.store.add(NAME, 'yellow', 5.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(a) == 'ok' and service.store.state(b) == 'ok')
+        digest = service.store.digest('yellow')
+        fit = Fit.model_validate(service.store.get(a).model_dump(include=set(Fit.model_fields)))
+        service.store.put(a, fit.model_copy(update={'psi_deg': 37.5}), digest)
+        again = EstimateStore(service.session.project, service.session.store)
+        assert again.get(a).psi_deg == 37.5 and again.get(b).psi_deg is None
+
+    # test_old_csv_has_no_direction: an estimates.csv written before fits had a direction still loads
+    def test_old_csv_has_no_direction(self, service: EstimateService) -> None:
+        pick = service.session.store.add(NAME, 'yellow', 3.0, 2.0, 1.0)
+        _wait(lambda: service.store.state(pick) == 'ok')
+        lines = service.store.path.read_text().splitlines()
+        col = lines[0].split(',').index('psi_deg')
+        old = [','.join(v for i, v in enumerate(line.split(',')) if i != col) for line in lines]
+        service.store.path.write_text(chr(10).join(old) + chr(10))
+        again = EstimateStore(service.session.project, service.session.store)
+        assert again.get(pick).psi_deg is None
 
     # test_failure_is_flagged: an estimator that fails gives a flagged fit and a message, not a retry loop
     def test_failure_is_flagged(self, service: EstimateService) -> None:
