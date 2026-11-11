@@ -7,7 +7,7 @@ import math, numpy as np
 from dataclasses import dataclass
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+    QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
     QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -19,14 +19,16 @@ from pickmix.geometry import Parent
 from pickmix.gui.components.images import draw_box, label_image, to_pixmap
 from pickmix.gui.components.patch import Patch, PatchCanvas
 from pickmix.gui.components.status import fit_status, status_item
+from pickmix.gui.components.toast import notify
 from pickmix.gui.style import image_well, quiet_table, tidy, white
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
 from pickmix.model import Pick, Session
+from pickmix.validate import validate_kind
 
 # _COLUMNS: pick table headings
-_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate', 'Box (Å)']
+_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate', 'Box (Å)', 'Score']
 
 # _CROP: half-width in voxels of the preview crops
 _CROP: int = 64
@@ -95,6 +97,13 @@ class ReviewTab(QWidget):
         reload_icon = white('cached')
         if reload_icon is not None:
             self.reestimate_button.setIcon(reload_icon)
+        self.validate_button = QPushButton('Validate')
+        self.validate_button.setToolTip(
+            'Score each pick of the chosen kind (every kind if all) against the average of its kind, and flag those far below the rest as lowcc. '
+            'A kind with several distinct views scores low throughout, and a filament needs a good direction.'
+        )
+        self.worst_first_box = QCheckBox('Worst first')
+        self.worst_first_box.setToolTip('Order the picks by validation score, lowest first, those without a current score last')
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
         quiet_table(self.table)
@@ -123,11 +132,13 @@ class ReviewTab(QWidget):
         ):
             filters.addWidget(QLabel(text), row, col)
             filters.addWidget(widget, row, col + 1)
+        filters.addWidget(self.worst_first_box, 2, 0, 1, 2)
         filters.setColumnMinimumWidth(2, 24)
         buttons = QGridLayout()
         buttons.addWidget(self.delete_selected_button, 0, 0)
         buttons.addWidget(self.delete_shown_button, 0, 1)
-        buttons.addWidget(self.reestimate_button, 1, 0, 1, 2)
+        buttons.addWidget(self.reestimate_button, 1, 0)
+        buttons.addWidget(self.validate_button, 1, 1)
         controls = QHBoxLayout()
         controls.addLayout(filters)
         controls.addSpacing(_COLUMN_GAP)
@@ -155,6 +166,7 @@ class ReviewTab(QWidget):
         for combo in (self.kind_filter, self.tomo_filter):
             combo.currentIndexChanged.connect(self.refresh)
         self.flag_filter.currentIndexChanged.connect(self.refresh)
+        self.worst_first_box.toggled.connect(self.refresh)
         self.snr_spin.valueChanged.connect(self.refresh)
         self.table.itemSelectionChanged.connect(self._preview)
         self.table.cellDoubleClicked.connect(self._double_clicked)
@@ -162,6 +174,7 @@ class ReviewTab(QWidget):
         self.delete_selected_button.clicked.connect(self.delete_selected)
         self.delete_shown_button.clicked.connect(self._ask_delete_shown)
         self.reestimate_button.clicked.connect(self._reestimate)
+        self.validate_button.clicked.connect(self._validate)
 
     # set_session: show a session and follow its picks and estimates
     def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
@@ -204,8 +217,12 @@ class ReviewTab(QWidget):
             tip = {'running': f'Estimate {state}', 'ok': 'Estimate is fine'}.get(status, flag)
             self.table.setItem(r, 7, status_item(status, tip))
             self.table.setItem(r, 8, QTableWidgetItem('' if pick.box_a is None else f'{pick.box_a:.0f}'))
+            score = self.service.validation.score(pick)
+            self.table.setItem(r, 9, QTableWidgetItem('' if score is None else f'{score:.2f}'))
         # the box column is only worth its room once a pick has a box of its own
         self.table.setColumnHidden(8, all(p.box_a is None for p in self._shown))
+        # the score column is only worth its room once validation has scored a pick shown
+        self.table.setColumnHidden(9, all(self.service.validation.score(p) is None for p in self._shown))
         if selected in [p.id for p in self._shown]:
             self.table.selectRow([p.id for p in self._shown].index(selected))
         self.table.blockSignals(False)
@@ -271,6 +288,9 @@ class ReviewTab(QWidget):
                 continue
             out.append((pick, fit))
         out.sort(key=lambda pf: (order.get(pf[0].tomogram, len(order)), kinds[pf[0].kind]))
+        if self.worst_first_box.isChecked():
+            # a stable sort, so picks without a score keep their order at the end
+            out.sort(key=lambda pf: math.inf if (score := self.service.validation.score(pf[0])) is None else score)
         return out
 
     # _ask_delete_shown: confirm, then delete every pick shown
@@ -285,6 +305,42 @@ class ReviewTab(QWidget):
     def _reestimate(self) -> None:
         if self.service is not None:
             self.service.request_all()
+
+    # _validate: score the picks of the chosen kind, or of every kind, off the GUI thread, and say what was found
+    def _validate(self) -> None:
+        if self.session is None or self.service is None:
+            return
+        chosen = self.kind_filter.currentText()
+        names = [k for k in self.session.project.config.kinds if chosen in ('(all)', k) and self.session.store.total(k)]
+        if not names:
+            notify('No picks to validate')
+            return
+        self.validate_button.setEnabled(False)
+        run_in_background(lambda: self.validate(names), self._validated, self._validate_failed)
+
+    # validate: validate each kind, returning one line about each; a kind that cannot be validated says why in its line
+    def validate(self, names: list[str]) -> list[str]:
+        assert self.session is not None and self.service is not None
+        lines = []
+        for name in names:
+            try:
+                s = validate_kind(name, self.session, self.service)
+            except ValueError as e:
+                lines.append(str(e))
+                continue
+            skipped = f', {s.skipped} without a fit skipped' if s.skipped else ''
+            lines.append(f'{name}: scored {s.scored}, median {s.median:.2f}, {s.flagged} flagged lowcc{skipped}')
+        return lines
+
+    # _validated: say what validation found
+    def _validated(self, lines: list[str]) -> None:
+        self.validate_button.setEnabled(True)
+        notify('; '.join(lines))
+
+    # _validate_failed: say why validation stopped
+    def _validate_failed(self, message: str) -> None:
+        self.validate_button.setEnabled(True)
+        notify(message)
 
     # _double_clicked: open the pick in the Pick tab
     def _double_clicked(self, row: int, _col: int) -> None:
