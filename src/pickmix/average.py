@@ -69,7 +69,7 @@ def box_images(
 # average_kind: cut a box at every item, project the central slab of each along z (the slab of the fit for a filament, turned so its axis lies along x), normalise it, and average per tomogram and overall; nothing is written until save_average
 def average_kind(
     name: str, kind: Kind, items: list[Item], tomos: dict[str, Tomogram], config: Config,
-    *, log: Callable[[str], None] = lambda _: None,
+    *, log: Callable[[str], None] = lambda _: None, scores: dict[int, float] | None = None,
 ) -> AverageResult:
     pairs, box = box_images(name, kind, items, tomos, config, log=log)
     images: dict[str, list[np.ndarray]] = {}
@@ -78,7 +78,13 @@ def average_kind(
         images.setdefault(pick.tomogram, []).append(img)
         origins.append(f'{len(images[pick.tomogram])} ({pick.tomogram})')
     everything = [img for imgs in images.values() for img in imgs]
-    chosen = np.linspace(0, len(everything) - 1, min(len(everything), _MONTAGE_MAX)).astype(int)
+    if scores:
+        # unscored picks go last
+        ranked = sorted(range(len(pairs)), key=lambda i: scores.get(pairs[i][0].id, math.inf))
+        chosen = np.array(ranked[:_MONTAGE_MAX])
+        origins = [o if pairs[i][0].id not in scores else f'{o} {scores[pairs[i][0].id]:.2f}' for i, o in enumerate(origins)]
+    else:
+        chosen = np.linspace(0, len(everything) - 1, min(len(everything), _MONTAGE_MAX)).astype(int)
     grid = math.ceil(math.sqrt(len(chosen)))
     result = AverageResult(
         name, 

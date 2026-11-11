@@ -160,6 +160,21 @@ def _sphere_tomogram(path: Path, name: str, radius: float) -> Tomogram:
         mrc.voxel_size = 5.0
     return Tomogram(name, name, path / f'{name}.mrc', None, 5.0, (60, 60, 60), 5.0 / 4, (240, 240, 240))
 
+# TestAverageLowest: the montage can show the lowest scoring picks first
+class TestAverageLowest:
+    # test_lowest_first: with scores the montage lists the lowest first with their scores in the labels, and the mean is unchanged
+    def test_lowest_first(self, tmp_path: Path) -> None:
+        tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20), (20, 12, 20), (20, 28, 20)])}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        items = [_item(i, 'T', x, y, 20) for i, (x, y) in enumerate([(12, 20), (28, 20), (20, 12), (20, 28)], start=1)]
+        kind = Kind(marker_a=60, box_a=100)
+        plain = average_kind('yellow', kind, items, tomos, config)
+        ranked = average_kind('yellow', kind, items, tomos, config, scores={1: 0.9, 2: 0.2, 3: 0.5})
+        assert [label.split()[0] for label in ranked.labels] == ['2', '3', '1', '4']
+        assert ranked.labels[0].endswith('0.20') and ranked.labels[1].endswith('0.50')
+        # a pick without a score keeps its plain label, and the scores change nothing else
+        assert ranked.labels[3] == plain.labels[3] and np.array_equal(plain.overall, ranked.overall)
+
 # TestBoxImages: the normalised box images behind the average
 class TestBoxImages:
     # test_images_match_average: the images come in the order the average takes them, normalised, and their mean is the average
