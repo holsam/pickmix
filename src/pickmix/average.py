@@ -39,6 +39,8 @@ class AverageResult:
     labels: list[str]
     # boxes averaged per tomogram
     counts: dict[str, int]
+    # whether any box was turned so its filament axis lies along x
+    aligned: bool = False
 
 # average_kind: cut a box at every item, project the central slab of each along z (slab of fit for filament, oriented so axis lies about x), normalise it, and average per tomogram and overall; nothing is written until save_average
 def average_kind(
@@ -75,6 +77,7 @@ def average_kind(
         MONTAGE_PAD, 
         [origins[i] for i in chosen],
         {t: len(imgs) for t, imgs in images.items()},
+        any(f.psi_deg is not None for _, f in items),
     )
     return result
 

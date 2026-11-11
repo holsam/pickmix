@@ -111,6 +111,7 @@ class TestAverage:
         plain = average_kind('rod', kind, _rod_items(angles, psi=False), tomos, config).overall
         assert aligned.shape == plain.shape == (50, 50)
         assert _bar_depth(aligned) > 2.0 * _bar_depth(plain)
+        assert average_kind('rod', kind, _rod_items(angles), tomos, config).aligned and not average_kind('rod', kind, _rod_items(angles, psi=False), tomos, config).aligned
         # a bar along x is dark across the middle rows end to end, and darker in the middle than at the top of the image
         c = aligned.shape[0] // 2
         assert aligned[c - 1 : c + 2, 10:40].mean() < aligned[3:6, 10:40].mean() - 0.3

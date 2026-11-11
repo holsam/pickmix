@@ -3,7 +3,7 @@ pickmix: tests for gui panes
 '''
 
 # Import external dependencies
-import numpy as np, pytest
+import dataclasses, numpy as np, pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from PySide6.QtGui import QImage, QShortcut
@@ -125,6 +125,17 @@ class TestAveragePane:
         widget.run()
         qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
         return widget
+
+    # test_filament_note: an average of turned filaments says so, and one of anything else does not
+    def test_filament_note(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService], capsys) -> None:
+        widget = self._ran(qtbot, pane)
+        plain = widget.result
+        assert not plain.aligned
+        capsys.readouterr()
+        widget._done(dataclasses.replace(plain, aligned=True))
+        assert 'oriented along x' in capsys.readouterr().out
+        widget._done(plain)
+        assert 'oriented along x' not in capsys.readouterr().out
 
     # test_list_shows_counts: row 0 is the overall count, each other row a tomogram with its own count, and choosing a row changes the mean
     def test_list_shows_counts(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
