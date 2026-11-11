@@ -184,6 +184,7 @@ class KindsPane(QWidget):
         if old is not None and old != name:
             if self.service is not None:
                 self.service.store.rename_kind(old, name)
+                self.service.validation.rename_kind(old, name)
             if self.session is not None:
                 self.session.store.rename_kind(old, name)
                 self.session.candidates.rename_kind(old, name)

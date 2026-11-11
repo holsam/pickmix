@@ -39,6 +39,19 @@ class TestItems:
         session, service = parts
         assert matched(session, service, 'cage') == {}
 
+    # test_flagged_adds_lowcc: a pick validation scored low gets lowcc beside its other flags, and one it scored well does not
+    def test_flagged_adds_lowcc(self, qtbot: QtBot, parts: tuple[Session, EstimateService]) -> None:
+        session, service = parts
+        a = session.store.add(NAME, 'cage', 10.0, 10.0, 10.0)
+        b = session.store.add(NAME, 'cage', 20.0, 10.0, 10.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
+        assert all('lowcc' not in f.flag for _, f in items(session, service, 'cage'))
+        service.validation.put_kind('cage', [(a, 0.1, True), (b, 0.6, False)])
+        got = {p.id: f.flag for p, f in items(session, service, 'cage')}
+        assert got[a.id] == 'lowcc' and got[b.id] == ''
+        session.store.add(NAME, 'cage', 30.0, 10.0, 10.0)
+        assert all('lowcc' not in f.flag for _, f in items(session, service, 'cage'))
+
     # test_flagged_adds_noparent: a pick with no parent in reach gets noparent, others do not
     def test_flagged_adds_noparent(self, qtbot: QtBot, parts: tuple[Session, EstimateService]) -> None:
         session, service = parts

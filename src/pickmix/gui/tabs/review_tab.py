@@ -168,6 +168,7 @@ class ReviewTab(QWidget):
         self.session, self.loader, self.service = session, loader, service
         session.store.listeners.append(self._schedule)
         service.store.listeners.append(self._schedule)
+        service.validation.listeners.append(self._schedule)
         self.refresh_kinds()
 
     # refresh_kinds: rebuild the kind and tomogram filters from the config
@@ -245,7 +246,8 @@ class ReviewTab(QWidget):
     # _flagged: the fit with noparent added to its flags when the pick's kind has a parent and the pick found none
     def _flagged(self, kind: str, pick: Pick, fit: Fit, parents: dict[int, Parent]) -> Fit:
         assert self.session is not None
-        return flagged(self.session, kind, pick, fit, parents)
+        assert self.service is not None
+        return flagged(self.session, kind, pick, fit, parents, self.service.validation)
 
     # _filtered: picks of known kinds passing the filters, in tomogram then kind order, with their current fit
     def _filtered(self) -> list[tuple[Pick, Fit | None]]:

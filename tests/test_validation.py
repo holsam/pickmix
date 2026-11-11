@@ -4,10 +4,14 @@ pickmix: tests for kind validation
 
 # Import external dependencies
 import numpy as np, pytest
+from collections.abc import Callable
+from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.config import ValidationParams
-from pickmix.validation import deviations, low_scores, score_images
+from pickmix.config import Kind, ValidationParams
+from pickmix.model import PickStore
+from pickmix.project import open_project
+from pickmix.validation import ValidationStore, deviations, low_scores, score_images
 
 # SIZE: edge in pixels of the synthetic box images
 SIZE: int = 24
@@ -120,3 +124,101 @@ class TestValidation:
         scores = np.array([0.2, 0.22, 0.21, 0.19, 0.2, 0.23, 0.21, 0.2, 0.22, 0.18])
         assert not low_scores(scores, ValidationParams()).any()
         assert low_scores(scores, ValidationParams(min_score=0.21)).sum() == 5
+
+
+# NAME: the single tomogram of the fixture project
+NAME: str = 'Position_1_2'
+
+# _store: a validation store over a project with two kinds, a few yellow picks, and the estimate digests it is told, which a test can change
+def _store(make_config: Callable[..., Path], count: int = 4) -> tuple[ValidationStore, PickStore, dict[str, str]]:
+    project = open_project(make_config())
+    project.update(kinds={'yellow': Kind(marker_a=100, box_a=100), 'green': Kind(marker_a=100, box_a=100)})
+    picks = PickStore(project)
+    for i in range(count):
+        picks.add(NAME, 'yellow', float(i), 1.0, 1.0)
+    digests = {'yellow': 'd1', 'green': 'g1'}
+    return ValidationStore(project, picks, digests.get), picks, digests
+
+# TestValidationStore: saved scores and when they stop applying
+class TestValidationStore:
+    # test_put_and_read: scores and low flags come back for the picks they were stored for
+    def test_put_and_read(self, make_config: Callable[..., Path]) -> None:
+        store, picks, _ = _store(make_config)
+        heard: list[int] = []
+        store.listeners.append(lambda: heard.append(1))
+        mine = picks.all('yellow')
+        assert store.state(mine[0]) == 'missing' and store.score(mine[0]) is None and not store.low(mine[0])
+        store.put_kind('yellow', [(p, 0.5 + 0.1 * i, i == 3) for i, p in enumerate(mine)])
+        assert [store.state(p) for p in mine] == ['ok'] * 4 and heard == [1]
+        assert store.score(mine[1]) == pytest.approx(0.6) and [store.low(p) for p in mine] == [False, False, False, True]
+
+    # test_reload: a new store reads back what was saved, including the flag
+    def test_reload(self, make_config: Callable[..., Path]) -> None:
+        store, picks, digests = _store(make_config)
+        mine = picks.all('yellow')
+        store.put_kind('yellow', [(p, 0.5, i == 0) for i, p in enumerate(mine)])
+        again = ValidationStore(store.project, picks, digests.get)
+        assert again.state(mine[0]) == 'ok' and again.low(mine[0]) and not again.low(mine[1])
+
+    # test_new_pick_makes_stale: adding, moving or removing a pick of the kind makes every score of the kind stale, and no flag shows
+    def test_new_pick_makes_stale(self, make_config: Callable[..., Path]) -> None:
+        store, picks, _ = _store(make_config)
+        mine = picks.all('yellow')
+        store.put_kind('yellow', [(p, 0.5, True) for p in mine])
+        picks.add(NAME, 'yellow', 9.0, 9.0, 1.0)
+        assert [store.state(p) for p in mine] == ['stale'] * 4 and not store.low(mine[0]) and store.score(mine[0]) is None
+        store.put_kind('yellow', [(p, 0.5, True) for p in picks.all('yellow')])
+        assert store.state(mine[0]) == 'ok'
+        picks.move(mine[1].id, 5.0, 5.0)
+        assert store.state(mine[0]) == 'stale' and store.state(mine[1]) == 'missing'
+        store.put_kind('yellow', [(p, 0.5, False) for p in picks.all('yellow')])
+        picks.remove(mine[2].id)
+        assert store.state(mine[0]) == 'stale'
+
+    # test_other_kinds_unaffected: scores of a kind stay while picks of another kind change
+    def test_other_kinds_unaffected(self, make_config: Callable[..., Path]) -> None:
+        store, picks, _ = _store(make_config)
+        mine = picks.all('yellow')
+        store.put_kind('yellow', [(p, 0.5, False) for p in mine])
+        picks.add(NAME, 'green', 3.0, 3.0, 3.0)
+        assert store.state(mine[0]) == 'ok'
+
+    # test_settings_make_stale: a change to the kind's fits or to the validation settings makes its scores stale
+    def test_settings_make_stale(self, make_config: Callable[..., Path]) -> None:
+        store, picks, digests = _store(make_config)
+        mine = picks.all('yellow')
+        store.put_kind('yellow', [(p, 0.5, False) for p in mine])
+        digests['yellow'] = 'd2'
+        assert store.state(mine[0]) == 'stale'
+        digests['yellow'] = 'd1'
+        assert store.state(mine[0]) == 'ok'
+        store.project.update(validation=ValidationParams(flag_deviations=8.0))
+        assert store.state(mine[0]) == 'stale'
+
+    # test_unknown_kind: a kind the config does not have cannot be stored, and its picks have no score
+    def test_unknown_kind(self, make_config: Callable[..., Path]) -> None:
+        store, picks, digests = _store(make_config)
+        digests.pop('green')
+        extra = picks.add(NAME, 'green', 3.0, 3.0, 3.0)
+        assert store.state(extra) == 'missing'
+        with pytest.raises(KeyError):
+            store.put_kind('green', [(extra, 0.5, False)])
+
+    # test_deleted_picks_dropped_on_save: rows of picks that no longer exist are not kept
+    def test_deleted_picks_dropped_on_save(self, make_config: Callable[..., Path]) -> None:
+        store, picks, _ = _store(make_config)
+        mine = picks.all('yellow')
+        store.put_kind('yellow', [(p, 0.5, False) for p in mine])
+        picks.remove(mine[0].id)
+        store.put_kind('yellow', [(p, 0.5, False) for p in picks.all('yellow')])
+        assert len(store.path.read_text().splitlines()) == 4
+
+    # test_rename_keeps_scores: a renamed kind keeps its scores
+    def test_rename_keeps_scores(self, make_config: Callable[..., Path]) -> None:
+        store, picks, digests = _store(make_config)
+        mine = picks.all('yellow')
+        store.put_kind('yellow', [(p, 0.5, True) for p in mine])
+        digests['gold'] = digests['yellow']
+        store.rename_kind('yellow', 'gold')
+        picks.rename_kind('yellow', 'gold')
+        assert store.state(mine[0]) == 'ok' and store.low(mine[0])

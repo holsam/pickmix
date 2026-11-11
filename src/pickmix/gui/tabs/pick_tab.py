@@ -213,6 +213,7 @@ class PickTab(QWidget):
             matcher.listeners.append(lambda: post(self._on_picks))
         # estimates arrive on the service's thread
         service.store.listeners.append(lambda: post(self._on_picks))
+        service.validation.listeners.append(lambda: post(self._on_picks))
         session.goto_listeners.append(self._on_goto)
         self.tomo.set_session(session)
         self.refresh_kinds()
@@ -555,8 +556,9 @@ class PickTab(QWidget):
                 view = None if fit is None else FitView(fit.x, fit.y, fit.z, fit.radius_a / px if kind.estimator != 'none' and fit.psi_deg is None else None, fit.box_a / px if fit.box_a > 0 else None, fit.z_lo, fit.z_hi, fit.psi_deg)
                 parent = self._matched.get(kind_name, {}).get(p.id)
                 unmatched = kind.parent is not None and fit is not None and parent is None
+                low = self.service is not None and self.service.validation.low(p)
                 normal = None if parent is None else (parent.normal[0], parent.normal[1])
-                out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag) or unmatched, view, normal))
+                out.append(Marker(p.id, p.x, p.y, p.z, kind.marker_a / 2 / px, kind.colour, bool(fit and fit.flag) or unmatched or low, view, normal))
             for c in self.session.candidates.candidates(name, kind_name, min_score=self.match_pane.min_score()):
                 out.append(Marker(-c.id, c.x, c.y, c.z, kind.marker_a / 2 / px, kind.colour, candidate=True, tip=f'{kind_name} candidate, score {c.score:.2f}'))
         return out
@@ -586,6 +588,8 @@ class PickTab(QWidget):
             snr, flag = ('', '') if fit is None else (f'{fit.snr:.2f}', fit.flag)
             if fit is not None and kinds[p.kind].parent is not None and p.id not in self._matched.get(p.kind, {}):
                 flag = ','.join(filter(None, [flag, 'noparent']))
+            if fit is not None and self.service is not None and self.service.validation.low(p):
+                flag = ','.join(filter(None, [flag, 'lowcc']))
             status = fit_status(self.service.store.state(p) if self.service else 'ok', flag)
             tip = {'running': 'Estimating...', 'ok': 'Estimate is fine'}.get(status, flag)
             self.table.setCellWidget(r, 0, StatusBadge(status, tip))
