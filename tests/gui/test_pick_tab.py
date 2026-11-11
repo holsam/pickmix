@@ -232,6 +232,18 @@ class TestPickTab:
         qtbot.waitUntil(lambda: tab.canvas.axis_angle(pick.id) is not None, timeout=5000)
         assert abs(tab.canvas.axis_angle(pick.id) - 60.0) < 1e-6 and tab.canvas.overlay_visible(pick.id)[0] is False
 
+    # test_lowcc_flag_shown: a pick validation scored low is flagged in the table and on the canvas, and loses the flag when the kind's picks change
+    def test_lowcc_flag_shown(self, qtbot: QtBot, setup: Callable[..., tuple[PickTab, Session]]) -> None:
+        tab, session = setup()
+        a = session.store.add('Position_1_2', 'yellow', 1.0, 1.0, 1.0)
+        b = session.store.add('Position_1_2', 'yellow', 2.0, 1.0, 1.0)
+        qtbot.waitUntil(lambda: all(tab.service.store.state(p) == 'ok' for p in (a, b)), timeout=5000)
+        tab.service.validation.put_kind('yellow', [(a, 0.1, True), (b, 0.6, False)])
+        qtbot.waitUntil(lambda: 'lowcc' in {tab.table.item(r, 6).text() for r in range(tab.table.rowCount())}, timeout=5000)
+        assert {m.id: m.flagged for m in tab._markers()}[a.id] and not {m.id: m.flagged for m in tab._markers()}[b.id]
+        session.store.add('Position_1_2', 'yellow', 3.0, 1.0, 1.0)
+        qtbot.waitUntil(lambda: 'lowcc' not in {tab.table.item(r, 6).text() for r in range(tab.table.rowCount())}, timeout=5000)
+
     # test_delete_needs_selection: Delete is greyed until a pick is selected and again once it is gone
     def test_delete_needs_selection(self, setup: Callable[..., tuple[PickTab, Session]]) -> None:
         tab, _ = setup()

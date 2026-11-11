@@ -15,6 +15,7 @@ from pickmix.estimate.registry import ESTIMATORS, Fit
 from pickmix.loader import Loader
 from pickmix.model import Pick, PickStore, Session
 from pickmix.project import Project
+from pickmix.validation import ValidationStore
 
 # _PICKING: kind settings about how a pick is made, which do not change how it is estimated
 _PICKING: set[str] = {'pick_mode', 'bounds_padding'}
@@ -120,6 +121,7 @@ class EstimateService:
     def __init__(self, session: Session, loader: Loader) -> None:
         self.session, self.loader = session, loader
         self.store = EstimateStore(session.project, session.store)
+        self.validation = ValidationStore(session.project, session.store, self.store.digest)
         self.last_error = ''
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='pickmix-estimate')
         self._lock = threading.Lock()

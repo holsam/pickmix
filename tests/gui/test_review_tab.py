@@ -231,6 +231,54 @@ class TestReviewTab:
         assert not tab.table.isColumnHidden(8)
         assert sorted(tab.table.item(r, 8).text() for r in range(2)) == ['', '412']
 
+    # test_validate_controls: the tab has a Validate button with an explanation and a Worst first box
+    def test_validate_controls(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, _, _ = setup()
+        assert tab.validate_button.text() == 'Validate' and 'lowcc' in tab.validate_button.toolTip() and 'several distinct views' in tab.validate_button.toolTip()
+        assert tab.worst_first_box.text() == 'Worst first' and not tab.worst_first_box.isChecked()
+
+    # test_score_column_and_worst_first: scores appear once a pick has one, and Worst first puts the lowest first with unscored picks last
+    def test_score_column_and_worst_first(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
+        tab, session, service = setup()
+        picks = [session.store.add(NAME, 'yellow', float(x), 3.0, 2.0) for x in (1, 2, 3, 4)]
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in picks), timeout=5000)
+        tab.refresh()
+        assert tab.table.isColumnHidden(9) and [tab.table.item(r, 2).text() for r in range(4)] == ['1.0', '2.0', '3.0', '4.0']
+        service.validation.put_kind('yellow', [(picks[0], 0.50, False), (picks[1], 0.10, True), (picks[3], 0.30, False)])
+        qtbot.waitUntil(lambda: not tab.table.isColumnHidden(9), timeout=5000)
+        assert [tab.table.item(r, 9).text() for r in range(4)] == ['0.50', '0.10', '', '0.30']
+        assert [tab.table.item(r, 6).text() for r in range(4)] == ['', 'lowcc', '', '']
+        tab.worst_first_box.setChecked(True)
+        assert [tab.table.item(r, 2).text() for r in range(4)] == ['2.0', '4.0', '1.0', '3.0']
+        tab.flag_filter.setCurrentIndex(1)
+        assert tab.table.rowCount() == 1 and tab.table.item(0, 2).text() == '2.0'
+
+    # test_validate_reports: Validate scores the chosen kind in the background and says what it found; a kind with too few picks says so
+    def test_validate_reports(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]], capsys) -> None:
+        tab, session, service = setup()
+        for x in range(12):
+            session.store.add(NAME, 'yellow', float(x % 8), float(x % 6), float(x % 4))
+        session.store.add(NAME, 'bad', 1.0, 1.0, 1.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in session.store.all()), timeout=5000)
+        tab.refresh()
+        tab.kind_filter.setCurrentText('yellow')
+        capsys.readouterr()
+        tab.validate_button.click()
+        assert not tab.validate_button.isEnabled()
+        qtbot.waitUntil(lambda: tab.validate_button.isEnabled(), timeout=10000)
+        assert 'yellow: scored 12' in capsys.readouterr().out
+        assert all(service.validation.state(p) == 'ok' for p in session.store.all('yellow'))
+        tab.kind_filter.setCurrentText('(all)')
+        tab.validate_button.click()
+        qtbot.waitUntil(lambda: tab.validate_button.isEnabled(), timeout=10000)
+        assert "kind 'bad': needs at least 10 picks to validate, has 1" in capsys.readouterr().out
+
+    # test_validate_nothing_to_do: with no picks of the chosen kind it says so and starts nothing
+    def test_validate_nothing_to_do(self, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]], capsys) -> None:
+        tab, _, _ = setup()
+        tab.validate_button.click()
+        assert 'No picks to validate' in capsys.readouterr().out and tab.validate_button.isEnabled()
+
     # test_double_click_opens: double-clicking a row asks to open the pick
     def test_double_click_opens(self, qtbot: QtBot, setup: Callable[[], tuple[ReviewTab, Session, EstimateService]]) -> None:
         tab, session, service = setup()

@@ -9,7 +9,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
-from pickmix.config import HOTKEYS, Config, FilamentParams, MatchParams, RingParams
+from pickmix.config import HOTKEYS, Config, FilamentParams, MatchParams, RingParams, ValidationParams
 from pickmix.gui.components.collapsible import Collapsible
 from pickmix.gui.components.toast import notify
 from pickmix.gui.style import form_label, heading
@@ -70,7 +70,7 @@ class ParamsForm(QWidget):
         if not self._setting:
             self.changed.emit()
 
-# SettingsPane: General (volume source and hotkeys) and Estimators (ring and filament), saved as they change
+# SettingsPane: General (volume source and hotkeys), Estimators (ring and filament) and Validation, saved as they change
 class SettingsPane(QWidget):
     # config_saved: source or estimator parameters were written to config.toml
     config_saved = Signal()
@@ -92,6 +92,7 @@ class SettingsPane(QWidget):
         self.ring_form = ParamsForm(RingParams())
         self.match_form = ParamsForm(MatchParams())
         self.filament_form = ParamsForm(FilamentParams())
+        self.validation_form = ParamsForm(ValidationParams())
         general = QGroupBox('General')
         form = QFormLayout(general)
         form.addRow('Volume source', self.source_box)
@@ -110,19 +111,25 @@ class SettingsPane(QWidget):
         matching_box = QVBoxLayout(matching)
         self.match_section = Collapsible('Scan', self.match_form)
         matching_box.addWidget(self.match_section)
-        self.setMinimumWidth(max(form.sizeHint().width() for form in (self.ring_form, self.filament_form, self.match_form)) + 48)
+        validation = QGroupBox('Validation')
+        validation_box = QVBoxLayout(validation)
+        self.validation_section = Collapsible('Validation', self.validation_form)
+        validation_box.addWidget(self.validation_section)
+        self.setMinimumWidth(max(form.sizeHint().width() for form in (self.ring_form, self.filament_form, self.match_form, self.validation_form)) + 48)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(heading('Settings'))
         layout.addWidget(general)
         layout.addWidget(estimators)
         layout.addWidget(matching)
+        layout.addWidget(validation)
         layout.addStretch()
         self.source_box.currentTextChanged.connect(self._save)
         self.cache_spin.valueChanged.connect(self._save)
         self.ring_form.changed.connect(self._save)
         self.match_form.changed.connect(self._save)
         self.filament_form.changed.connect(self._save)
+        self.validation_form.changed.connect(self._save)
 
     # set_project: show a project's settings without saving them back
     def set_project(self, project: Project) -> None:
@@ -133,6 +140,7 @@ class SettingsPane(QWidget):
         self.ring_form.set(project.config.ring)
         self.match_form.set(project.config.match)
         self.filament_form.set(project.config.filament)
+        self.validation_form.set(project.config.validation)
         self._loading = False
         self.refresh_hotkeys()
 
@@ -148,12 +156,12 @@ class SettingsPane(QWidget):
             box.setCurrentText(chosen or NO_KIND)
         self._loading = False
 
-    # _save: write source, slice cache, ring, match and filament parameters; a value the config refuses is not written
+    # _save: write source, slice cache, ring, match, filament and validation parameters; a value the config refuses is not written
     def _save(self) -> None:
         if self._loading or self.project is None:
             return
         try:
-            self.project.update(source=self.source_box.currentText(), cache_mb=self.cache_spin.value(), ring=self.ring_form.get(), match=self.match_form.get(), filament=self.filament_form.get())
+            self.project.update(source=self.source_box.currentText(), cache_mb=self.cache_spin.value(), ring=self.ring_form.get(), match=self.match_form.get(), filament=self.filament_form.get(), validation=self.validation_form.get())
         except ValidationError as e:
             notify(f'Not saved: {e.errors()[0]["msg"]}')
             return

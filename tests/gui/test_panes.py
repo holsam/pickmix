@@ -126,6 +126,23 @@ class TestAveragePane:
         qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
         return widget
 
+    # test_montage_lowest_first: with the box ticked and scores stored the montage is labelled with them, and without scores it says so
+    def test_montage_lowest_first(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService], capsys) -> None:
+        widget, session, service = pane
+        a = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        b = session.store.add(NAME, 'yellow', 5.0, 3.0, 2.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in (a, b)), timeout=5000)
+        widget.refresh_kinds()
+        widget.worst_box.setChecked(True)
+        widget.run()
+        qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
+        assert 'No validation scores' in capsys.readouterr().out and not any(label.endswith('0.30') for label in widget.result.labels)
+        service.validation.put_kind('yellow', [(a, 0.60, False), (b, 0.30, True)])
+        widget.result = None
+        widget.run()
+        qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
+        assert widget.result.labels[0].endswith('0.30') and widget.result.labels[1].endswith('0.60')
+
     # test_filament_note: an average of turned filaments says so, and one of anything else does not
     def test_filament_note(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService], capsys) -> None:
         widget = self._ran(qtbot, pane)
@@ -413,6 +430,17 @@ class TestSettingsPane:
         pane.filament_section.toggle.setChecked(True)
         assert not pane.filament_form.isHidden()
 
+    # test_validation_value_autosaves: a committed validation number is written, the others are kept, and the section starts collapsed
+    def test_validation_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        assert pane.validation_form.isHidden()
+        pane.validation_section.toggle.setChecked(True)
+        assert not pane.validation_form.isHidden()
+        with qtbot.waitSignal(pane.config_saved):
+            pane.validation_form._boxes['flag_deviations'][0].setValue(8.0)
+        config = load_config(path)
+        assert config.validation.flag_deviations == 8.0 and config.validation.min_picks == 10 and config.validation.trim_fraction == 0.2
+
     # test_no_save_button: there is nothing to press
     def test_no_save_button(self, qtbot: QtBot) -> None:
         pane = SettingsPane()
@@ -463,6 +491,7 @@ class TestSettingsPane:
         closed = pane.minimumSizeHint().width()
         pane.ring_section.toggle.setChecked(True)
         pane.filament_section.toggle.setChecked(True)
+        pane.validation_section.toggle.setChecked(True)
         assert pane.minimumSizeHint().width() == closed
 
 # TestTomoPane: tomogram dock
