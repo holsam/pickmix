@@ -67,3 +67,9 @@ class TestProject:
         assert project.common_pixel_size == 5.36
         project.tomos = {}
         assert project.common_pixel_size is None
+
+    # test_open_project_reports_steps: say hears each step in order, with the tomogram count
+    def test_open_project_reports_steps(self, make_config: Callable[..., Path]) -> None:
+        heard: list[str] = []
+        open_project(make_config(), say=heard.append)
+        assert heard[0] == 'Reading config.toml' and heard[1].startswith('Reading ') and heard[2].startswith('Checking 1 tomograms in ')
