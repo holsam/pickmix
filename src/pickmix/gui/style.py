@@ -4,8 +4,8 @@ pickmix: shared GUI text levels and spacing
 
 # Import external dependencies
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QIcon
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QScrollArea, QTableWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QScrollArea, QTableWidget, QToolButton, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.components.icons import icon, tinted
@@ -19,9 +19,6 @@ CELL_PADDING: int = 14
 
 # RADIUS: corner radius of rounded buttons, pixels
 RADIUS: int = 16
-
-# ICON_COLOUR: colour of every action icon
-ICON_COLOUR: str = '#ffffff'
 
 # MEDIUM_PAD: pixels added to a medium button's icon edge to get its square size
 MEDIUM_PAD: int = 16
@@ -177,9 +174,10 @@ def _icon_over_text(text: str, stem: str, icon_px: int, size: tuple[int, int], *
     inner = QVBoxLayout(button)
     inner.setSpacing(BIG_GAP)
     inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    found = tinted(stem, colour='#ffffff', size=icon_px)
+    found = tinted(stem, colour=icon_colour(), size=icon_px)
     if found is not None:
         picture = QLabel()
+        tint_mark(picture, stem, icon_px)
         picture.setPixmap(found.pixmap(QSize(icon_px, icon_px)))
         picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
         inner.addWidget(picture)
@@ -191,9 +189,30 @@ def _icon_over_text(text: str, stem: str, icon_px: int, size: tuple[int, int], *
         child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
     return button
 
+# icon_colour: colour of every action icon (theme's text colour so it shows on light and dark buttons)
+def icon_colour() -> str:
+    return QApplication.palette().color(QPalette.ColorRole.ButtonText).name()
+
+# tint_mark: remember which icon a widget shows, so retint can redraw it when the theme changes
+def tint_mark(widget: QWidget, stem: str, size: int) -> None:
+    widget.setProperty('tint_stem', stem)
+    widget.setProperty('tint_size', size)
+
+# retint: redraw every marked icon under a widget in the current theme colour
+def retint(root: QWidget) -> None:
+    for widget in root.findChildren(QWidget):
+        stem, size = widget.property('tint_stem'), widget.property('tint_size')
+        found = tinted(stem, icon_colour(), size) if stem else None
+        if found is None:
+            continue
+        if isinstance(widget, QLabel):
+            widget.setPixmap(found.pixmap(QSize(size, size)))
+        elif isinstance(widget, QAbstractButton):
+            widget.setIcon(found)
+
 # white: a bundled icon redrawn in the action colour, or None when its file is not there
 def white(stem: str, size: int = 16) -> QIcon | None:
-    return tinted(stem, colour=ICON_COLOUR, size=size)
+    return tinted(stem, colour=icon_colour(), size=size)
 
 # icon_button: an icon-only white button with a tooltip, or a text button when the icon file is missing; size makes it a rounded square of that icon edge plus padding
 def icon_button(stem: str, text: str, tip: str, *, size: int | None = None) -> QPushButton:
@@ -201,6 +220,7 @@ def icon_button(stem: str, text: str, tip: str, *, size: int | None = None) -> Q
     button = QPushButton() if found is not None else QPushButton(text)
     if found is not None:
         button.setIcon(found)
+        tint_mark(button, stem, size or 16)
     if size is not None:
         button.setIconSize(QSize(size, size))
         button.setFixedSize(size + MEDIUM_PAD, size + MEDIUM_PAD)

@@ -22,7 +22,7 @@ from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.tomo_pane import TomoPane
 from pickmix.gui.components.toast import notify
 from pickmix.gui.workers import post
-from pickmix.gui.style import CELL_PADDING, bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
+from pickmix.gui.style import CELL_PADDING, bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, tint_mark, title, view_toggle, white
 from pickmix.loader import Loader, Opened
 from pickmix.matcher import MatchService
 from pickmix.model import Session
@@ -290,11 +290,13 @@ class PickTab(QWidget):
     # set_tomo_visible: show or hide the tomogram pane; the icon is the action the button takes
     def set_tomo_visible(self, shown: bool) -> None:
         self.tomo.setVisible(shown)
-        panel = white('left_panel_close' if shown else 'left_panel_open', 20)
+        stem = 'left_panel_close' if shown else 'left_panel_open'
+        panel = white(stem, 20)
         if panel is None:
             self.tomo_toggle.setText('<' if shown else '>')
         else:
             self.tomo_toggle.setIcon(panel)
+            tint_mark(self.tomo_toggle, stem, 20)
         self.tomo_toggle.setToolTip('Hide the tomogram list' if shown else 'Show the tomogram list')
 
     # delete_selected: remove selected pick or reject selected candidate

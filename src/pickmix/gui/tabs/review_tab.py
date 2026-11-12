@@ -20,7 +20,7 @@ from pickmix.gui.components.images import draw_box, label_image, to_pixmap
 from pickmix.gui.components.patch import Patch, PatchCanvas
 from pickmix.gui.components.status import fit_status, status_item
 from pickmix.gui.components.toast import notify
-from pickmix.gui.style import image_well, quiet_table, tidy, white
+from pickmix.gui.style import image_well, quiet_table, tidy, tint_mark, white
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
@@ -97,6 +97,7 @@ class ReviewTab(QWidget):
         reload_icon = white('cached')
         if reload_icon is not None:
             self.reestimate_button.setIcon(reload_icon)
+            tint_mark(self.reestimate_button, 'cached', 16)
         self.validate_button = QPushButton('Validate')
         self.validate_button.setToolTip(
             'Score each pick of the chosen kind (every kind if all) against the average of its kind, and flag those far below the rest as lowcc. '
