@@ -20,6 +20,7 @@ from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import StatusBadge, fit_status, status_item
 from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.tomo_pane import TomoPane
+from pickmix.gui.components.toast import notify
 from pickmix.gui.workers import post
 from pickmix.gui.style import CELL_PADDING, bold_safe, eye_toggle, heading, hint, icon_button, quiet_table, tidy, title, view_toggle, white
 from pickmix.loader import Loader, Opened
@@ -387,6 +388,7 @@ class PickTab(QWidget):
             self.opened = future.result()
         except Exception as e:
             self.status.setText(f'Could not open {name}: {type(e).__name__}: {e}')
+            notify(f'Could not open {name}: {type(e).__name__}: {e}')
             return
         if self._timer:
             self._timer.lap('opened and contrast')
