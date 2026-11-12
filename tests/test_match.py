@@ -9,7 +9,7 @@ from pathlib import Path
 # Import internal pickmix objects
 from pickmix.candidates import Hit
 from pickmix.config import Config, Kind
-from pickmix.match import Cancelled, bin_cube, bin_volume, build_template, find_peaks, scan, score_volume, soft_sphere, template_geometry, to_voxel
+from pickmix.match import Cancelled, bin_cube, bin_volume, build_template, find_peaks, scan, scan_peaks, score_volume, soft_sphere, template_geometry, to_voxel
 from pickmix.utils.io import Tomogram
 
 # PIXEL: Angstrom per voxel of the test tomograms
@@ -126,6 +126,29 @@ class TestMatch:
         tomo = _tomogram(tmp_path, 'a', [(40, 40, 24)])
         template = build_template('blob', kind, [('a', 40, 40, 24)], {'a': tomo}, config)
         assert not score_volume(np.ones((30, 40, 50), dtype=np.float32), template).any()
+
+    # test_score_slabs_match_whole_volume: scoring a slab at a time gives the same scores as one pass
+    def test_score_slabs_match_whole_volume(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        config, kind = _config(tmp_path)
+        tomo = _tomogram(tmp_path, 'a', [(40, 40, 24)])
+        template = build_template('blob', kind, [('a', 40, 40, 24)], {'a': tomo}, config)
+        vol = np.random.default_rng(0).standard_normal((50, 40, 45)).astype(np.float32)
+        whole = score_volume(vol, template)
+        monkeypatch.setattr('pickmix.match._SCORE_VOXELS', 1)
+        np.testing.assert_allclose(score_volume(vol, template), whole, atol=1e-4)
+
+    # test_scan_peaks_match_whole_volume: peaks found a slab at a time are those of the whole score, including across slab joins
+    def test_scan_peaks_match_whole_volume(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        config, kind = _config(tmp_path)
+        tomo = _tomogram(tmp_path, 'a', [(40, 40, 24)])
+        template = build_template('blob', kind, [('a', 40, 40, 24)], {'a': tomo}, config)
+        vol = np.random.default_rng(1).standard_normal((60, 40, 45)).astype(np.float32)
+        args = dict(min_score=0.05, separation=3, margin=4, limit=50)
+        whole = find_peaks(score_volume(vol, template), **args)
+        monkeypatch.setattr('pickmix.match._SCORE_VOXELS', 1)
+        slabbed = scan_peaks(vol, template, workers=1, **args)
+        assert [p for p, _ in slabbed] == [p for p, _ in whole] and whole
+        np.testing.assert_allclose([v for _, v in slabbed], [v for _, v in whole], atol=1e-5)
 
     # test_find_peaks: best first, separated, away from the faces, above the minimum
     def test_find_peaks(self) -> None:
