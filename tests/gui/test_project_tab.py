@@ -11,6 +11,7 @@ from pytestqt.qtbot import QtBot
 from pickmix.config import load_config
 from pickmix.gui.style import MEDIUM_PAD
 from pickmix.gui.tabs.project_tab import ProjectTab
+from pickmix.lock import ProjectLock
 from pickmix.project import open_project
 
 # TestProjectTab: project tab
@@ -104,3 +105,48 @@ class TestProjectTab:
         with qtbot.waitSignal(tab.project_closed):
             tab.close_button.click()
         assert tab.stack.currentIndex() == 0 and tab.project is None
+
+    # test_busy_project_is_not_opened: a project another process has locked stays closed, with the reason shown
+    def test_busy_project_is_not_opened(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        project = open_project(make_config())
+        with ProjectLock(project.config.out_dir, 'candidate-search'):
+            tab = ProjectTab()
+            qtbot.addWidget(tab)
+            tab.set_project(project)
+            assert tab.project is None and tab.stack.currentWidget() is tab.loading and 'candidate-search' in tab.loading.detail.text()
+        tab.set_project(project)
+        assert tab.project is project
+
+    # test_reload_keeps_lock: reopening the same project does not lock it out of itself, and closing frees it
+    def test_reload_keeps_lock(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        tab.set_project(open_project(path))
+        tab.set_project(open_project(path))
+        assert tab.project is not None
+        tab.close_project()
+        # taking the lock again is the proof it was freed
+        ProjectLock(open_project(path).config.out_dir, 'again').release()
+
+    # test_loading_page_while_opening: opening switches to the loading page, which lists the steps, then the project shows
+    def test_loading_page_while_opening(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        tab.open_config(path)
+        assert tab.stack.currentWidget() is tab.loading and tab.loading.path.toolTip() == str(path)
+        with qtbot.waitSignal(tab.project_changed):
+            pass
+        assert tab.stack.currentIndex() == 1 and 'Reading config.toml' in tab.loading.detail.text()
+
+    # test_failed_open_stays_on_loading_page: a bad config shows why with a Back button, and Back returns to the welcome page
+    def test_failed_open_stays_on_loading_page(self, qtbot: QtBot, tmp_path: Path) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        tab.show()
+        tab.open_config(tmp_path / 'missing.toml')
+        qtbot.waitUntil(lambda: tab.loading.back_button.isVisible())
+        assert tab.stack.currentWidget() is tab.loading and 'missing.toml' in tab.loading.detail.text() and tab.open_button.isEnabled()
+        tab.loading.back_button.click()
+        assert tab.stack.currentIndex() == 0

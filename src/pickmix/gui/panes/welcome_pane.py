@@ -5,12 +5,12 @@ pickmix: welcome pane shown when no project is open
 # Import external dependencies
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QHideEvent, QIcon, QKeySequence, QResizeEvent, QShortcut, QShowEvent
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix import __version__
 from pickmix.gui.components.icons import icon
-from pickmix.gui.style import big_button, hint, tidy
+from pickmix.gui.style import big_button, hint, is_dark, tidy
 
 # _CORNER: gap in pixels between the theme button and the window corner
 _CORNER: int = 10
@@ -55,7 +55,7 @@ class WelcomePane(QWidget):
 
     # update_theme_button: theme button offers the other theme, light_mode while dark and dark_mode while light
     def update_theme_button(self) -> None:
-        to_light = QApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
+        to_light = is_dark()
         stem, name = ('light_mode', 'Light mode') if to_light else ('dark_mode', 'Dark mode')
         found = icon(stem)
         self.theme_button.setText(name if found is None else '')

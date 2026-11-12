@@ -4,7 +4,7 @@ pickmix: project creation from RELION runs
 
 # Import external dependencies
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,8 +40,12 @@ class Project:
         return self.config.name or self.path.parent.name
 
 # open_project: load a config.toml and discover its tomograms
-def open_project(path: Path) -> Project:
+def open_project(path: Path, *, say: Callable[[str], None] = lambda message: None) -> Project:
+    say('Reading config.toml')
     config = load_config(path)
+    say(f'Reading {config.tomograms_star.name}')
+    names = [row['rlnTomoName'] for row in read_star_loop(config.tomograms_star)]
+    say(f'Checking {len(names)} tomograms in {config.raw_dir}')
     issues: dict[str, TomogramError] = {}
     tomos = find_tomograms(config, issues=issues)
     names = [row['rlnTomoName'] for row in read_star_loop(config.tomograms_star)]

@@ -3,7 +3,7 @@ pickmix: template building and normalised cross-correlation search
 '''
 
 # Import external dependencies
-import math, numpy as np, scipy.fft
+import math, numpy as np, os, scipy.fft
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from scipy import ndimage, signal
@@ -11,8 +11,10 @@ from scipy import ndimage, signal
 # Import internal pickmix objects
 from pickmix.candidates import Hit
 from pickmix.config import Config, Kind
+from pickmix.estimates import EstimateStore
 from pickmix.extract import crop_box
-from pickmix.utils.io import Tomogram, load_volume
+from pickmix.model import Pick
+from pickmix.utils.io import Tomogram, load_volume, volume_path
 
 # _SLAB: planes of a tomogram read and binned at a time
 _SLAB: int = 32
@@ -156,3 +158,40 @@ def scan(
     near = separation * template.bin
     free = [h for h in hits if all((h.x - kx) ** 2 + (h.y - ky) ** 2 + (h.z - kz) ** 2 > near**2 for kx, ky, kz in known)]
     return free[: params.max_per_tomogram]
+
+# template_positions: where template is cut for each pick, at its fit when it has a current one
+def template_positions(picks: Iterable[Pick], tomos: dict[str, Tomogram], estimates: EstimateStore | None = None) -> list[tuple[str, float, float, float]]:
+    out = []
+    for pick in picks:
+        if pick.tomogram in tomos:
+            fit = estimates.get(pick) if estimates else None
+            out.append((pick.tomogram, *((fit.x, fit.y, fit.z) if fit else (pick.x, pick.y, pick.z))))
+    return out
+
+# binned_volume: tomogram binned by a factor, from out_dir/cache/binned when that is newer than the volume, else made and saved there
+def binned_volume(tomo: Tomogram, factor: int, config: Config, stop: Callable[[], bool] = lambda: False) -> np.ndarray:
+    path = volume_path(tomo, source=config.source)
+    cached = config.out_dir / 'cache' / 'binned' / f'{path.stem}_x{factor}.npy'
+    if cached.exists() and cached.stat().st_mtime >= path.stat().st_mtime:
+        return np.load(cached)
+    binned = bin_volume(load_volume(tomo, source=config.source), factor, stop=stop)
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    partial = cached.with_name(cached.stem + '.partial.npy')
+    np.save(partial, binned)
+    os.replace(partial, cached)
+    return binned
+
+# scan_tomogram: hits per kind in one tomogram, plus kinds left out because pixel size differs from the template's
+def scan_tomogram(tomo: Tomogram, templates: dict[str, Template], config: Config, known: dict[str, list[tuple[float, float, float]]], stop: Callable[[], bool] = lambda: False) -> tuple[dict[str, list[Hit]], list[str]]:
+    hits: dict[str, list[Hit]] = {}
+    skipped: list[str] = []
+    # one binned volume per binning factor, shared by the kinds that use it
+    volumes: dict[int, np.ndarray] = {}
+    for name, template in templates.items():
+        if abs(tomo.pixel_size / template.pixel_size - 1) > 0.01:
+            skipped.append(name)
+            continue
+        if template.bin not in volumes:
+            volumes[template.bin] = binned_volume(tomo, template.bin, config, stop)
+        hits[name] = scan(volumes[template.bin], template, config.kinds[name], config, known.get(name, []))
+    return hits, skipped

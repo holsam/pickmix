@@ -33,6 +33,16 @@ class TestCandidates:
         assert [c.score for c in store.candidates(NAME, min_score=0.5)] == [0.6]
         assert store.candidates(NAME, 'other') == [] and store.count('cage') == 2 and store.count('cage', NAME, min_score=0.5) == 1
 
+    # test_replace_without_persist: a bulk replace changes nothing on disk until the caller saves
+    def test_replace_without_persist(self, make_config: Callable[..., Path]) -> None:
+        store = _store(make_config)
+        heard: list[int] = []
+        store.listeners.append(lambda: heard.append(1))
+        store.replace(NAME, 'cage', [Hit(1, 1, 1, 0.3)], reach=2, persist=False)
+        assert store.count('cage') == 1 and heard == [] and not store.path.exists()
+        store.save()
+        assert CandidateStore(store.project).count('cage') == 1
+
     # test_replace_swaps_old_for_new: a new scan replaces the old candidates of that kind and tomogram only
     def test_replace_swaps_old_for_new(self, make_config: Callable[..., Path]) -> None:
         store = _store(make_config)

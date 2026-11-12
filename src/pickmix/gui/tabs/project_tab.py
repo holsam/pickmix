@@ -3,18 +3,22 @@ pickmix: 'Project' tab for creating/opening projects and showing tomograms, kind
 '''
 
 # Import external dependencies
+from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.dialogs.new_project_dialog import NewProjectDialog
 from pickmix.gui.panes.kinds_pane import KindsPane
+from pickmix.gui.panes.loading_pane import LoadingPane
 from pickmix.gui.panes.settings_pane import SettingsPane
 from pickmix.gui.panes.tomograms_pane import TomogramsPane
 from pickmix.gui.panes.welcome_pane import WelcomePane
 from pickmix.gui.style import hint, icon_button, tidy, title, transparent_scroll
-from pickmix.gui.workers import run_in_background
+from pickmix.gui.workers import post, run_in_background
+from pickmix.lock import ProjectBusy, ProjectLock
 from pickmix.project import Project, create_project, open_project
 from pickmix.utils.star import MergeResult
 
@@ -33,7 +37,11 @@ class ProjectTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.project: Project | None = None
+        # held while project is open
+        self.lock: ProjectLock | None = None
         self.welcome = WelcomePane()
+        self.loading = LoadingPane()
+        self._before = 0
         self.open_button = self.welcome.open_button
         self.new_button = self.welcome.new_button
         self.reload_button = icon_button('refresh', 'Reload', 'Reload config.toml and rescan the tomograms', size=28)
@@ -71,6 +79,7 @@ class ProjectTab(QWidget):
         self.stack = QStackedWidget()
         self.stack.addWidget(self.welcome)
         self.stack.addWidget(opened)
+        self.stack.addWidget(self.loading)
         layout = QVBoxLayout(self)
         tidy(layout)
         layout.addWidget(self.stack, 1)
@@ -82,14 +91,17 @@ class ProjectTab(QWidget):
         self.settings_pane.config_saved.connect(self.config_saved)
         self.settings_pane.hotkeys_saved.connect(self.kinds_saved)
         self.kinds_pane.config_saved.connect(self._kinds_saved)
+        self.loading.dismissed.connect(self._dismissed)
 
     # open_config: open a config.toml in the background
     def open_config(self, path: Path) -> None:
-        self._busy(f'Scanning tomograms for {str(path)!r}...')
-        run_in_background(lambda: open_project(path), self.set_project, self._failed)
+        say = self._busy('open', str(path))
+        run_in_background(lambda: open_project(path, say=say), self.set_project, self._failed)
 
-    # set_project: show a project and announce it
+    # set_project: lock then show a project and announce it
     def set_project(self, project: Project) -> None:
+        if not self._lock(project):
+            return
         self.project = project
         self.title_label.setText(project.display_name)
         self.path_label.setText(str(project.path))
@@ -103,9 +115,29 @@ class ProjectTab(QWidget):
     # close_project: close the open project and go back to the welcome page
     def close_project(self) -> None:
         self.project = None
+        if self.lock is not None:
+            self.lock.release()
+            self.lock = None
         self.stack.setCurrentIndex(0)
         self.status.setText('')
         self.project_closed.emit()
+
+    # _lock: hold project's lock, keeping one already held when reloading the same project
+    def _lock(self, project: Project) -> bool:
+        out_dir = project.config.out_dir
+        if self.lock is not None and self.lock.path.parent == out_dir:
+            return True
+        try:
+            taken = ProjectLock(out_dir, 'GUI')
+        except ProjectBusy as e:
+            self._idle('')
+            self.loading.fail(str(e))
+            self.stack.setCurrentWidget(self.loading)
+            return False
+        if self.lock is not None:
+            self.lock.release()
+        self.lock = taken
+        return True
 
     # _kinds_saved: kinds changed, so the hotkey dropdowns list the new ones, then tell the other tabs
     def _kinds_saved(self) -> None:
@@ -129,8 +161,8 @@ class ProjectTab(QWidget):
         if not dialog.exec():
             return
         values = dialog.values()
-        self._busy('Merging runs and scanning tomograms...')
-        run_in_background(lambda: _create_and_open(values), self._created, self._failed)
+        say = self._busy('create', str(values['project_dir']))
+        run_in_background(lambda: _create_and_open(values, say), self._created, self._failed)
 
     # _created: show the new project and say what the merge did
     def _created(self, made: tuple[Project, MergeResult]) -> None:
@@ -138,11 +170,16 @@ class ProjectTab(QWidget):
         self.set_project(project)
         self.status.setText(f'Created with {result.count} tomograms, {len(result.skipped)} duplicates skipped')
 
-    # _busy: block the open, create, reload and close buttons while work runs
-    def _busy(self, message: str) -> None:
+    # _busy: show the loading page and block the open, create, reload and close buttons while work runs
+    def _busy(self, kind: Literal['open', 'create'], path: str) -> Callable[[str], None]:
+        if self.stack.currentWidget() is not self.loading:
+            self._before = self.stack.currentIndex()
         for button in (self.open_button, self.new_button, self.reload_button, self.close_button):
             button.setEnabled(False)
-        self.status.setText(message)
+        self.status.setText('')
+        self.loading.begin(kind, path)
+        self.stack.setCurrentWidget(self.loading)
+        return lambda message: post(lambda: self.loading.step(message))
 
     # _idle: unblock the buttons
     def _idle(self, message: str) -> None:
@@ -150,11 +187,17 @@ class ProjectTab(QWidget):
             button.setEnabled(True)
         self.status.setText(message)
 
-    # _failed: show an error from background work
+    # _failed: unblock buttons and show an error on the loading page, which stays until Back
     def _failed(self, message: str) -> None:
-        self._idle(message)
+        self._idle('')
+        self.loading.fail(message)
+
+    # _dismissed: go back to the page that was showing before loading started
+    def _dismissed(self) -> None:
+        self.stack.setCurrentIndex(self._before)
 
 # _create_and_open: create the project on disk, then open it
-def _create_and_open(values: dict[str, object]) -> tuple[Project, MergeResult]:
+def _create_and_open(values: dict[str, object], say: Callable[[str], None]) -> tuple[Project, MergeResult]:
+    say('Merging RELION runs and writing config.toml')
     path, result = create_project(**values)
-    return open_project(path), result
+    return open_project(path, say=say), result

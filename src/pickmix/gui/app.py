@@ -4,29 +4,30 @@ pickmix: application start-up for GUI
 
 # Import external dependencies
 from pathlib import Path
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 # Import internal pickmix objects
 from pickmix.gui.main_window import MainWindow
-from pickmix.gui.style import retint, standardise
+from pickmix.gui.style import apply_theme, is_dark, refresh_palette, retint, standardise
 
 # _set_scheme: apply saved colour theme
 def _set_scheme(app: QApplication) -> None:
     saved = QSettings('pickmix', 'pickmix').value('theme', '')
     if saved in ('light', 'dark'):
-        app.styleHints().setColorScheme(Qt.ColorScheme.Light if saved == 'light' else Qt.ColorScheme.Dark)
+        apply_theme(app, saved == 'dark')
 
 # _toggle_theme: save theme and apply it
-def _toggle_theme(app: QApplication) -> None:
-    dark = app.styleHints().colorScheme() == Qt.ColorScheme.Dark
-    QSettings('pickmix', 'pickmix').setValue('theme', 'light' if dark else 'dark')
-    _set_scheme(app)
+def _toggle_theme(app: QApplication, window: MainWindow) -> None:
+    dark = not is_dark()
+    QSettings('pickmix', 'pickmix').setValue('theme', 'dark' if dark else 'light')
+    apply_theme(app, dark)
+    _restyle(app, window)
 
 # _restyle: redraw tinted icons in new theme colour
 def _restyle(app: QApplication, window: MainWindow) -> None:
     def apply() -> None:
-        app.setPalette(app.style().standardPalette())
+        refresh_palette(app)
         for top in app.topLevelWidgets():
             for widget in (top, *top.findChildren(QWidget)):
                 app.style().unpolish(widget)
@@ -42,7 +43,7 @@ def run(args: list[str]) -> int:
     _set_scheme(app)
     standardise(app)
     window = MainWindow()
-    window.project_tab.welcome.theme_toggled.connect(lambda: _toggle_theme(app))
+    window.project_tab.welcome.theme_toggled.connect(lambda: _toggle_theme(app, window))
     app.styleHints().colorSchemeChanged.connect(lambda _: _restyle(app, window))
     window.show()
     if args:

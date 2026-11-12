@@ -83,6 +83,7 @@ class MatchPane(QGroupBox):
     def refresh(self, *, kind: str | None, picks: int, shown: int, total: int, selected: bool) -> None:
         busy = self.matcher is not None and self.matcher.busy
         self.score_label.setText(f'Score at least {self.min_score():.2f}')
+        self.scan_button.setText(f'Scan {kind}' if kind and not busy else 'Scan')
         self.scan_button.setEnabled(self.matcher is not None and kind is not None and picks > 0 and not busy)
         self.stop_button.setEnabled(busy)
         self.accept_button.setEnabled(selected)
@@ -96,7 +97,7 @@ class MatchPane(QGroupBox):
         if matcher is None or kind is None:
             return ''
         if busy:
-            return f'Scanning {kind}: {matcher.done} of {matcher.total} tomograms'
+            return f'Scanning {matcher.kind}: {matcher.done} of {matcher.total} tomograms'
         if matcher.last_error:
             return f'Scan failed: {matcher.last_error}'
         if picks == 0:

@@ -11,6 +11,7 @@ from pytestqt.qtbot import QtBot
 
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
+from pickmix.gui.components.elided_label import ElidedLabel
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
 from pickmix.gui.components.images import FitLabel, draw_box, label_cells, tile_cells, label_image, to_image, to_pixmap
 from pickmix.gui.components.range_slider import RangeSlider
@@ -249,6 +250,20 @@ class TestCanvas:
         fit_scale = canvas.transform().m11()
         canvas.fill()
         assert canvas.transform().m11() > fit_scale
+
+# TestElidedLabel: elided label
+class TestElidedLabel:
+    # test_long_text_is_cut_in_the_middle: text wider than the label loses its middle, keeps both ends and the full text in the tooltip
+    def test_long_text_is_cut_in_the_middle(self, qtbot: QtBot) -> None:
+        label = ElidedLabel()
+        qtbot.addWidget(label)
+        label.show()
+        label.resize(150, 20)
+        text = '/dls/ebic/data/staff-scratch/SamH/projects/very/long/path/config.toml'
+        label.setText(text)
+        assert '…' in label.text() and label.text().startswith('/dls') and label.text().endswith('config.toml') and label.toolTip() == text
+        label.resize(2000, 20)
+        assert label.text() == text
 
 # TestIcons: icon loading and tinting
 class TestIcons:
