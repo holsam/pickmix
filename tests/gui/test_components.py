@@ -12,7 +12,7 @@ from pytestqt.qtbot import QtBot
 # Import internal pickmix objects
 from pickmix.gui.components.canvas import FitView, Marker, SliceCanvas
 from pickmix.gui.components.icons import ICON_DIR, icon, tinted
-from pickmix.gui.components.images import FitLabel, label_cells, tile_cells, label_image, to_image, to_pixmap
+from pickmix.gui.components.images import FitLabel, draw_box, label_cells, tile_cells, label_image, to_image, to_pixmap
 from pickmix.gui.components.range_slider import RangeSlider
 from pickmix.gui.components.status import STATUS_STYLE, StatusBadge, fit_status, status_item
 from pickmix.gui.components.toast import notify
@@ -120,6 +120,79 @@ class TestCanvas:
         with qtbot.waitSignal(canvas.marker_clicked) as blocker:
             QTest.mouseRelease(canvas.viewport(), Qt.MouseButton.LeftButton, pos=end)
         assert blocker.args == [-3] and moved == [] and canvas.selected_id == -3
+
+    # test_bounds_two_clicks: in bounds mode the first click places nothing and the second asks for a pair
+    def test_bounds_two_clicks(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_bounds_mode(True, 0.2)
+        with qtbot.assertNotEmitted(canvas.add_requested):
+            QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+            assert canvas.bounds_pending
+            with qtbot.waitSignal(canvas.bounds_requested) as blocker:
+                QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 30, 12))
+        x1, y1, x2, y2 = blocker.args
+        assert abs(x1 - 10) < 1 and abs(y1 - 12) < 1 and abs(x2 - 30) < 1 and abs(y2 - 12) < 1
+        assert not canvas.bounds_pending
+
+    # test_bounds_preview_follows_pointer: after the first click a line and a box follow the pointer, the box padded and centred halfway
+    def test_bounds_preview_follows_pointer(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_bounds_mode(True, 0.5)
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        QTest.mouseMove(canvas.viewport(), _view_pos(canvas, 30, 12))
+        line, box = canvas._rubber
+        assert abs(line.line().x2() - 30.5) < 1 and abs(box.rect().width() - 20 * 1.5) < 1.5
+        assert abs(box.rect().center().x() - 20.5) < 1
+
+    # test_bounds_cancel: Escape, clearing the canvas and leaving bounds mode all drop a first click
+    def test_bounds_cancel(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_bounds_mode(True, 0.2)
+        canvas.setFocus()
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        QTest.keyClick(canvas, Qt.Key.Key_Escape)
+        assert not canvas.bounds_pending and canvas._rubber is None
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        canvas.set_bounds_mode(False)
+        assert not canvas.bounds_pending and canvas._rubber is None
+        canvas.set_bounds_mode(True, 0.2)
+        QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 10, 12))
+        canvas.clear()
+        assert not canvas.bounds_pending
+
+    # test_bounds_click_on_marker_selects: in bounds mode a click on a marker still selects it and starts no pair
+    def test_bounds_click_on_marker_selects(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_markers([Marker(3, 20, 15, 0, 4.0, 'yellow')])
+        canvas.set_bounds_mode(True, 0.2)
+        with qtbot.waitSignal(canvas.marker_clicked):
+            QTest.mouseClick(canvas.viewport(), Qt.MouseButton.LeftButton, pos=_view_pos(canvas, 20, 15))
+        assert not canvas.bounds_pending
+
+    # test_filament_axis: a fit with a direction is drawn as a line along it, only on the slices of the fit and with the rings
+    def test_filament_axis(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        fit = FitView(20, 15, 5, None, 16.0, 3, 7, 30.0)
+        canvas.set_markers([Marker(1, 20, 15, 5, 4.0, 'yellow', fit=fit), Marker(2, 5, 5, 5, 4.0, 'yellow', fit=FitView(5, 5, 5, 4.0, 16.0, 3, 7))])
+        canvas.set_z(5)
+        assert canvas.axis_visible(1) and abs(canvas.axis_angle(1) - 30.0) < 1e-6 and canvas.axis_angle(2) is None and not canvas.axis_visible(2)
+        canvas.set_z(9)
+        assert not canvas.axis_visible(1)
+        canvas.set_z(5)
+        canvas.set_overlay(rings=False, boxes=True)
+        assert not canvas.axis_visible(1)
+        canvas.set_overlay(rings=True, boxes=True)
+        assert canvas.axis_visible(1)
+
+    # test_axis_removed_with_markers: replacing the markers removes the axis items
+    def test_axis_removed_with_markers(self, qtbot: QtBot) -> None:
+        canvas = _canvas(qtbot)
+        canvas.set_markers([Marker(1, 20, 15, 5, 4.0, 'yellow', fit=FitView(20, 15, 5, None, 16.0, 3, 7, 90.0))])
+        count = len(canvas.scene().items())
+        canvas.set_markers([Marker(1, 20, 15, 5, 4.0, 'yellow', fit=FitView(20, 15, 5, None, 16.0, 3, 7, 90.0))])
+        assert len(canvas.scene().items()) == count
+        canvas.set_markers([])
+        assert canvas.axis_angle(1) is None
 
     # test_wheel_scrolls_z: a wheel notch emits one z step
     def test_wheel_scrolls_z(self, qtbot: QtBot) -> None:
@@ -260,6 +333,23 @@ class TestImages:
         assert wide.pixelColor(60, 60) != QColor('#141414') and wide.pixelColor(540, 60) != QColor('#141414')
         tall = tile_cells(base, ['a'] * 5, grid, pad, 120, 600)
         assert tall.pixelColor(60, 60) != QColor('#141414') and tall.pixelColor(60, 540) != QColor('#141414')
+
+    # test_outline_scaled: the rectangle is drawn at the array position times the scale, and the original is untouched
+    def test_outline_scaled(self) -> None:
+        base = QPixmap(100, 100)
+        base.fill(QColor('black'))
+        out = draw_box(base, (10, 20, 30, 40), 2.0, 'red')
+        image = out.toImage()
+        assert image.pixelColor(20, 40) == QColor('red') and image.pixelColor(60, 60) == QColor('red') and image.pixelColor(40, 60) == QColor('black')
+        assert base.toImage().pixelColor(20, 40) == QColor('black')
+
+    # test_dotted_skips_pixels: a dotted outline leaves gaps along an edge
+    def test_dotted_skips_pixels(self) -> None:
+        base = QPixmap(100, 100)
+        base.fill(QColor('black'))
+        image = draw_box(base, (10, 10, 90, 50), 1.0, 'red', dotted=True).toImage()
+        edge = [image.pixelColor(x, 10) == QColor('red') for x in range(10, 90)]
+        assert any(edge) and not all(edge)
 
 # TestRangeSlider: two-handle slider
 class TestRangeSlider:

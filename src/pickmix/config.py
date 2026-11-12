@@ -29,6 +29,10 @@ class Kind(BaseModel):
     tilt_prior_deg: float | None = Field(default=None, title='Tilt prior (°)', description='Written as rlnAngleTiltPrior when set, and left out otherwise.')
     # pixel size of the RELION extraction in Angstrom per pixel
     extract_angpix: float = Field(default=10.68, gt=0, title='Extract pixel size (Å/px)', description='Pixel size of the RELION extraction in Å per pixel.')
+    # how many clicks to create pick: one click, or two clicks on opposite sides of the structure
+    pick_mode: Literal['point', 'bounds'] = Field(default='point', title='Pick mode', description="'point': one click places the pick. 'bounds': click one side of the structure then the other; the pick goes midway between them and its box edge is the distance between the clicks plus padding. Extraction uses one box for the kind, taken from the picks' boxes when Box edge is 0.")
+    # fraction added to distance between two clicks of bounds pick
+    bounds_padding: float = Field(default=0.2, ge=0, title='Bounds padding (fraction)', description='Added to the distance between the two clicks of a bounds pick, as a fraction of it: 0.2 makes the box edge 20 per cent longer than the distance.')
 
 # RingParams: settings of the ring estimator, all lengths in Angstrom; title and description feed the settings form
 class RingParams(BaseModel):
@@ -50,6 +54,46 @@ class RingParams(BaseModel):
     z_shift_a: float = Field(default=100.0, title='Z shift (Å)', description='How far the slab centre may move from the pick in z.')
     # box edge as a multiple of the ring diameter when the kind takes its box from the estimator
     box_margin: float = Field(default=1.25, title='Box margin (× diameter)', description='Box edge as a multiple of the ring diameter, for kinds that take their box from the estimator.')
+
+# FilamentParams: settings of the filament estimator, all lengths in Angstrom; title and description feed the settings form
+class FilamentParams(BaseModel):
+    # filament width as full width at half maximum, swept on a geometric ladder
+    width_range_a: tuple[float, float] = Field(default=(60.0, 300.0), title='Width range (Å)', description='Narrowest and widest filament width (full width at half maximum) looked for.')
+    width_steps: int = Field(default=5, ge=1, title='Width steps', description='How many widths are tried across the range.')
+    # how far from the pick the axis may be, and the longest stretch used to find direction and length
+    search_range_a: float = Field(default=300.0, gt=0, title='Search range (Å)', description='How far the filament axis may be from the pick in xy.')
+    max_length_a: float = Field(default=2000.0, gt=0, title='Max length (Å)', description='Longest stretch of filament used to find its direction and length.')
+    # z slab about the pick for the first look, and how far the z extent is searched
+    slab_half_a: float = Field(default=200.0, gt=0, title='First slab half-thickness (Å)', description='Half-thickness of the slab about the pick used to find the filament axis.')
+    z_max_half_a: float = Field(default=600.0, gt=0, title='Max z half-extent (Å)', description='The z extent of the filament is looked for this far above and below the pick.')
+    z_fraction: float = Field(default=0.5, gt=0, lt=1, title='Z extent threshold', description='A plane counts as filament while its contrast stays above this fraction of the best plane.')
+    # preparation of each projection
+    smooth_sigma_a: float = Field(default=8.0, gt=0, title='Smoothing σ (Å)', description='Light Gaussian smoothing of each projection.')
+    highpass_sigma_a: float = Field(default=600.0, gt=0, title='High-pass σ (Å)', description='Gaussian width removed from each projection to flatten the background.')
+    # share of the strongest ridge response kept when tracing the filament
+    ridge_fraction: float = Field(default=0.4, gt=0, lt=1, title='Ridge threshold', description='Pixels with at least this fraction of the strongest ridge response are traced as filament.')
+    # box
+    box_margin: float = Field(default=1.25, gt=0, title='Box margin (× width)', description='Box edge as a multiple of the filament width, for kinds that take their box from the estimator.')
+    min_box_a: float = Field(default=100.0, gt=0, title='Smallest box (Å)', description='The estimated box is never smaller than this.')
+    box_from: Literal['width', 'segment'] = Field(default='segment', title='Box from', description="'segment' sizes the box to the measured length of filament (up to Max length), so it holds the whole stretch, but it is large, varies with the length, and is mostly empty for a thin filament. 'width' sizes the box to the filament width times the margin, which is small and the same everywhere and suits tiling particles along the axis, but a long filament runs out of the box.")
+    # flags
+    weak_snr: float = Field(default=3.0, ge=0, title='Weak below SNR', description="Fits with an SNR below this are flagged 'weak'.")
+    min_elongation: float = Field(default=2.0, ge=1, title='Short below elongation', description="Traced stretches whose length is less than this many times their width are flagged 'short', as they are probably a spot and not a filament.")
+
+# ValidationParams: settings of kind validation, which scores each pick against the average of its kind; title and description feed the settings form
+class ValidationParams(BaseModel):
+    # fewest picks a kind can be validated with
+    min_picks: int = Field(default=10, ge=3, title='Fewest picks', description='Only validate kinds with at least this many picks.')
+    # share of the lowest scoring picks left out of the average the scores are taken against
+    trim_fraction: float = Field(default=0.2, ge=0, lt=0.5, title='Trimmed share', description='Share of the lowest scoring picks left out of the average the scores are measured against, so bad picks do not bias average towards themselves.')
+    # how far a box may be shifted to find its best match, as a multiple of the box edge
+    shift_fraction: float = Field(default=0.125, ge=0, le=0.5, title='Search shift (× box)', description='How far a box may be shifted to find its best match with the average, as a multiple of the box edge.')
+    # a pick is flagged when its score sits this many robust standard deviations below the kind's median
+    flag_deviations: float = Field(default=6.0, gt=0, title='Flag deviations', description="A pick is flagged 'lowcc' when its score is this many robust standard deviations (from the median absolute deviation) below the median score of its kind.")
+    # smallest spread the kind's scores are taken to have, so a very uniform kind does not flag trivial differences
+    mad_floor: float = Field(default=0.02, gt=0, title='Smallest spread', description='Scores within a kind are expected to be at least this, so uniform kinds aren\'t flagged for minute differences.')
+    # absolute floor, 0 for none
+    min_score: float = Field(default=0.0, ge=0, lt=1, title='Lowest score', description="Picks scoring below this are also flagged 'lowcc'. 0 disables this flag.")
 
 # MatchParams: settings of the template matching scan; title and description feed the settings form
 class MatchParams(BaseModel):
@@ -88,6 +132,8 @@ class Config(BaseModel):
     # most memory the slice cache may hold; scrolling is smooth where a whole tomogram fits
     cache_mb: int = Field(default=2048, ge=64, title='Slice cache (MB)', description='Most memory the viewer may use to keep slices of tomograms ready for scrolling.')
     ring: RingParams = Field(default_factory=RingParams)
+    filament: FilamentParams = Field(default_factory=FilamentParams)
+    validation: ValidationParams = Field(default_factory=ValidationParams)
     match: MatchParams = Field(default_factory=MatchParams)
     kinds: dict[str, Kind] = Field(default_factory=_default_kinds)
     # kind chosen by each of the keys 1 to 9, '' for an unused key
@@ -129,11 +175,12 @@ class Config(BaseModel):
         self.hotkeys = [*keys, *[''] * (HOTKEYS - len(keys))]
         return self
 
-    # _relations: parents must exist and form no cycle, and a passthrough kind needs a box
+    # _relations: parents must exist and form no cycle, and a passthrough kind needs a box unless picks have own
     @model_validator(mode='after')
     def _relations(self) -> 'Config':
         for name, kind in self.kinds.items():
-            if kind.estimator == 'none' and kind.box_a == 0:
+            # bounds kinds takes box from clicks
+            if kind.estimator == 'none' and kind.box_a == 0 and kind.pick_mode == 'point':
                 raise ValueError(f'kind {name!r}: estimator "none" needs box_a above 0')
             seen, parent = {name}, kind.parent
             while parent is not None:

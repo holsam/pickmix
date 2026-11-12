@@ -3,7 +3,7 @@ pickmix: tests for gui panes
 '''
 
 # Import external dependencies
-import numpy as np, pytest
+import dataclasses, numpy as np, pytest
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from PySide6.QtGui import QImage, QShortcut
@@ -126,6 +126,34 @@ class TestAveragePane:
         qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
         return widget
 
+    # test_montage_lowest_first: with the box ticked and scores stored the montage is labelled with them, and without scores it says so
+    def test_montage_lowest_first(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService], capsys) -> None:
+        widget, session, service = pane
+        a = session.store.add(NAME, 'yellow', 4.0, 3.0, 2.0)
+        b = session.store.add(NAME, 'yellow', 5.0, 3.0, 2.0)
+        qtbot.waitUntil(lambda: all(service.store.state(p) == 'ok' for p in (a, b)), timeout=5000)
+        widget.refresh_kinds()
+        widget.worst_box.setChecked(True)
+        widget.run()
+        qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
+        assert 'No validation scores' in capsys.readouterr().out and not any(label.endswith('0.30') for label in widget.result.labels)
+        service.validation.put_kind('yellow', [(a, 0.60, False), (b, 0.30, True)])
+        widget.result = None
+        widget.run()
+        qtbot.waitUntil(lambda: widget.result is not None, timeout=5000)
+        assert widget.result.labels[0].endswith('0.30') and widget.result.labels[1].endswith('0.60')
+
+    # test_filament_note: an average of turned filaments says so, and one of anything else does not
+    def test_filament_note(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService], capsys) -> None:
+        widget = self._ran(qtbot, pane)
+        plain = widget.result
+        assert not plain.aligned
+        capsys.readouterr()
+        widget._done(dataclasses.replace(plain, aligned=True))
+        assert 'oriented along x' in capsys.readouterr().out
+        widget._done(plain)
+        assert 'oriented along x' not in capsys.readouterr().out
+
     # test_list_shows_counts: row 0 is the overall count, each other row a tomogram with its own count, and choosing a row changes the mean
     def test_list_shows_counts(self, qtbot: QtBot, pane: tuple[AveragePane, Session, EstimateService]) -> None:
         widget = self._ran(qtbot, pane)
@@ -177,7 +205,7 @@ class TestKindsPane:
         pane, _ = _kinds_pane(qtbot, make_config)
         assert pane.kind_names() == ['cage'] and 'cage' in pane.edit_buttons
         text = pane.details['cage'].text()
-        assert '<b>Marker:</b> 600 Å' in text and '<b>Box:</b> from estimator' in text and '<b>Estimator:</b> ring' in text and '<b>Parent:</b> none' in text
+        assert '<b>Marker:</b> 600 Å' in text and '<b>Box:</b> from estimator' in text and '<b>Estimator:</b> ring' in text and '<b>Picking:</b> one click' in text and '<b>Parent:</b> none' in text
 
     # test_add_kind: a new kind is saved after the others and takes the first free key
     def test_add_kind(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
@@ -298,7 +326,7 @@ class TestKindsPane:
     def test_details_are_a_vertical_list_with_bold_keys(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
         pane, _ = _kinds_pane(qtbot, make_config)
         lines = pane.details['cage'].text().split('<br>')
-        assert len(lines) == 7 and all(line.startswith('<b>') and ':</b> ' in line for line in lines)
+        assert len(lines) == 8 and all(line.startswith('<b>') and ':</b> ' in line for line in lines)
 
     # test_kinds_flow_into_columns: a wide block gives one column, a narrow one gives several, filling across then down
     def test_kinds_flow_into_columns(self, qtbot: QtBot, make_config: Callable[..., Path], monkeypatch) -> None:
@@ -374,6 +402,45 @@ class TestSettingsPane:
             pane.match_form._boxes['min_score'][0].setValue(1.5)
         assert load_config(path).match.min_score == 0.2
 
+    # test_filament_value_autosaves: a committed filament number is written, the others are kept
+    def test_filament_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        with qtbot.waitSignal(pane.config_saved):
+            pane.filament_form._boxes['search_range_a'][0].setValue(450.0)
+        config = load_config(path)
+        assert config.filament.search_range_a == 450.0 and config.filament.width_range_a == (60.0, 300.0) and config.filament.box_from == 'segment'
+
+    # test_box_from_is_a_choice: the box source is a drop-down of its two values, saved when changed, with the trade-off on hover
+    def test_box_from_is_a_choice(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        [choice] = pane.filament_form._boxes['box_from']
+        assert [choice.itemText(i) for i in range(choice.count())] == ['width', 'segment'] and choice.currentText() == 'segment'
+        assert 'mostly empty' in pane.filament_form.labels['box_from'].toolTip()
+        with qtbot.waitSignal(pane.config_saved):
+            choice.setCurrentText('width')
+        assert load_config(path).filament.box_from == 'width'
+        pane.set_project(open_project(path))
+        assert pane.filament_form.get().box_from == 'width'
+
+    # test_filament_section_collapsed: filament parameters are hidden until the section is opened
+    def test_filament_section_collapsed(self, qtbot: QtBot) -> None:
+        pane = SettingsPane()
+        qtbot.addWidget(pane)
+        assert pane.filament_form.isHidden()
+        pane.filament_section.toggle.setChecked(True)
+        assert not pane.filament_form.isHidden()
+
+    # test_validation_value_autosaves: a committed validation number is written, the others are kept, and the section starts collapsed
+    def test_validation_value_autosaves(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        pane, path = _settings_pane(qtbot, make_config)
+        assert pane.validation_form.isHidden()
+        pane.validation_section.toggle.setChecked(True)
+        assert not pane.validation_form.isHidden()
+        with qtbot.waitSignal(pane.config_saved):
+            pane.validation_form._boxes['flag_deviations'][0].setValue(8.0)
+        config = load_config(path)
+        assert config.validation.flag_deviations == 8.0 and config.validation.min_picks == 10 and config.validation.trim_fraction == 0.2
+
     # test_no_save_button: there is nothing to press
     def test_no_save_button(self, qtbot: QtBot) -> None:
         pane = SettingsPane()
@@ -423,6 +490,8 @@ class TestSettingsPane:
         qtbot.addWidget(pane)
         closed = pane.minimumSizeHint().width()
         pane.ring_section.toggle.setChecked(True)
+        pane.filament_section.toggle.setChecked(True)
+        pane.validation_section.toggle.setChecked(True)
         assert pane.minimumSizeHint().width() == closed
 
 # TestTomoPane: tomogram dock

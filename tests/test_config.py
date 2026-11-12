@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 # Import internal pickmix objects
-from pickmix.config import Config, Kind, MatchParams, RingParams, load_config, save_config
+from pickmix.config import Config, FilamentParams, Kind, MatchParams, RingParams, ValidationParams, load_config, save_config
 
 # _config: a config with absolute paths, so it survives a save and load unchanged, and the given kinds
 def _config(**kinds: Kind) -> Config:
@@ -72,6 +72,43 @@ class TestConfig:
         for name, field in RingParams.model_fields.items():
             assert field.title and field.description, name
 
+    # test_filament_params_documented: every filament setting has a title and a description for the settings form
+    def test_filament_params_documented(self) -> None:
+        assert all(f.title and f.description for f in FilamentParams.model_fields.values())
+
+    # test_box_from_tooltip_gives_trade_off: the description of box_from says what each choice costs
+    def test_box_from_tooltip_gives_trade_off(self) -> None:
+        text = FilamentParams.model_fields['box_from'].description
+        assert 'segment' in text and 'width' in text and 'mostly empty' in text and 'runs out of the box' in text
+        assert FilamentParams().box_from == 'segment'
+
+    # test_filament_round_trip: filament settings survive a save and load
+    def test_filament_round_trip(self, tmp_path: Path) -> None:
+        config = _config().replace(filament=FilamentParams(width_range_a=(80.0, 200.0), box_from='width'))
+        save_config(config, tmp_path / 'config.toml')
+        assert load_config(tmp_path / 'config.toml').filament == FilamentParams(width_range_a=(80.0, 200.0), box_from='width')
+
+    # test_filament_params_rejected: out of range settings are refused
+    def test_filament_params_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            FilamentParams(z_fraction=1.5)
+        with pytest.raises(ValidationError):
+            FilamentParams(box_from='both')
+
+    # test_validation_params_documented: every validation setting has a title and a description for the settings form
+    def test_validation_params_documented(self) -> None:
+        assert all(f.title and f.description for f in ValidationParams.model_fields.values())
+
+    # test_validation_round_trip: validation settings survive a save and load, and out of range ones are refused
+    def test_validation_round_trip(self, tmp_path: Path) -> None:
+        config = _config().replace(validation=ValidationParams(min_picks=20, flag_deviations=4.0))
+        save_config(config, tmp_path / 'config.toml')
+        assert load_config(tmp_path / 'config.toml').validation == ValidationParams(min_picks=20, flag_deviations=4.0)
+        with pytest.raises(ValidationError):
+            ValidationParams(trim_fraction=0.6)
+        with pytest.raises(ValidationError):
+            ValidationParams(min_picks=1)
+
     # test_match_params_documented: every match setting has a title and a description for the settings form
     def test_match_params_documented(self) -> None:
         assert all(f.title and f.description for f in MatchParams.model_fields.values())
@@ -81,6 +118,27 @@ class TestConfig:
         config = _config().replace(match=MatchParams(template_px=24, min_score=0.3))
         save_config(config, tmp_path / 'config.toml')
         assert load_config(tmp_path / 'config.toml').match == MatchParams(template_px=24, min_score=0.3)
+
+    # test_pick_mode_defaults_and_round_trip: kinds pick with one click unless set, and mode/padding survive save & load
+    def test_pick_mode_defaults_and_round_trip(self, tmp_path: Path) -> None:
+        assert Kind(marker_a=10).pick_mode == 'point' and Kind(marker_a=10).bounds_padding == 0.2
+        config = _config(tube=Kind(marker_a=10, pick_mode='bounds', bounds_padding=0.5))
+        save_config(config, tmp_path / 'config.toml')
+        loaded = load_config(tmp_path / 'config.toml').kinds['tube']
+        assert (loaded.pick_mode, loaded.bounds_padding) == ('bounds', 0.5)
+
+    # test_bounds_kind_needs_no_box: a passthrough kind with no box is allowed when its picks bring their own
+    def test_bounds_kind_needs_no_box(self) -> None:
+        _config(tube=Kind(marker_a=10, pick_mode='bounds'))
+        with pytest.raises(ValidationError):
+            _config(tube=Kind(marker_a=10))
+
+    # test_pick_mode_rejected: unknown mode or negative padding is refused
+    def test_pick_mode_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            Kind(marker_a=10, pick_mode='triple')
+        with pytest.raises(ValueError):
+            Kind(marker_a=10, bounds_padding=-0.1)
 
     # test_default_hotkeys: no hotkeys means the first nine kinds in table order, padded with unused keys
     def test_default_hotkeys(self) -> None:

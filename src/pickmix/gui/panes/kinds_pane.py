@@ -184,6 +184,7 @@ class KindsPane(QWidget):
         if old is not None and old != name:
             if self.service is not None:
                 self.service.store.rename_kind(old, name)
+                self.service.validation.rename_kind(old, name)
             if self.session is not None:
                 self.session.store.rename_kind(old, name)
                 self.session.candidates.rename_kind(old, name)
@@ -221,10 +222,11 @@ class KindsPane(QWidget):
 # _describe: a kind's values as a vertical list with bold keys
 def _describe(kind: Kind) -> str:
     box = 'from estimator' if kind.box_a == 0 else f'{kind.box_a:g} Å'
+    picking = 'one click' if kind.pick_mode == 'point' else f'two clicks, {kind.bounds_padding:g} padding'
     parent = 'none' if kind.parent is None else f'{kind.parent} (within {kind.parent_tolerance_a:g} Å)'
     tilt = 'none' if kind.tilt_prior_deg is None else f'{kind.tilt_prior_deg:g}°'
     pairs = [
-        ('Marker', f'{kind.marker_a:g} Å'), ('Box', box), ('Estimator', kind.estimator), ('Colour', kind.colour),
+        ('Marker', f'{kind.marker_a:g} Å'), ('Box', box), ('Picking', picking), ('Estimator', kind.estimator), ('Colour', kind.colour),
         ('Parent', parent), ('Tilt prior', tilt), ('Extract', f'{kind.extract_angpix:g} Å/px'),
     ]
     return '<br>'.join(f'<b>{key}:</b> {html.escape(value)}' for key, value in pairs)

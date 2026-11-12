@@ -89,6 +89,22 @@ class TestExport:
         [row] = read_star_loop(tmp_path / 'relion' / 'yellow' / 'particles.star')
         assert not any(c.startswith(('rlnTomoSubtomogram', 'rlnAngle')) for c in row)
 
+    # test_filament_psi_prior: a filament kind writes each fit's direction as rlnAnglePsiPrior, and a fit with none as zero
+    def test_filament_psi_prior(self, tmp_path: Path) -> None:
+        kind = Kind(marker_a=100, estimator='filament')
+        items = [
+            (Pick(1, 'T', 'rod', 4, 3, 2), Fit(x=4, y=3, z=2, radius_a=50.0, box_a=200.0, snr=5.0, z_lo=1, z_hi=3, psi_deg=37.25)),
+            (Pick(2, 'T', 'rod', 1, 1, 1), Fit(x=1, y=1, z=1, radius_a=50.0, box_a=200.0, snr=0.0, z_lo=1, z_hi=1, flag='error')),
+        ]
+        export_kind('rod', kind, items, {'T': TOMO}, tmp_path)
+        rows = read_star_loop(tmp_path / 'relion' / 'rod' / 'particles.star')
+        assert [r['rlnAnglePsiPrior'] for r in rows] == ['37.2500', '0.0000']
+
+    # test_no_psi_prior_for_other_kinds: kinds that are not filaments get no psi prior column
+    def test_no_psi_prior_for_other_kinds(self, tmp_path: Path) -> None:
+        export_kind('yellow', KIND, [_item(1, 4, 3, 2, 1.5)], {'T': TOMO}, tmp_path)
+        assert 'rlnAnglePsiPrior' not in read_star_loop(tmp_path / 'relion' / 'yellow' / 'particles.star')[0]
+
     # test_all_unmatched: a kind whose picks all lack a parent is an error
     def test_all_unmatched(self, tmp_path: Path) -> None:
         kind = Kind(marker_a=40, box_a=200, parent='cage')

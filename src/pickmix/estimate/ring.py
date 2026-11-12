@@ -5,11 +5,11 @@ pickmix: ring estimator, centre, radius and box of a pick from a z slab grown un
 # Import external dependencies
 import numpy as np
 from dataclasses import dataclass
-from scipy import ndimage
 from skimage.feature import match_template
 
 # Import internal pickmix objects
 from pickmix.config import Config, Kind, RingParams
+from pickmix.estimate.common import crop, prepare
 from pickmix.estimate.registry import Fit, register
 
 # Step: ring fit for one slab half-thickness k; y, x are crop coordinates, radius_px in voxels
@@ -29,7 +29,7 @@ def ring(vol: np.ndarray, xyz: tuple[float, float, float], kind: Kind, pixel_siz
     half = int(np.ceil((params.bg_range[1] * params.radius_range_a[1] + params.locate_range_a) / px))
     kmax = round(params.walk_max_half_a / px)
     shift = round(params.z_shift_a / px)
-    sub, valid, zlo = _crop(vol, z0 - kmax - shift, z0 + kmax + shift, y0, x0, half)
+    sub, valid, zlo = crop(vol, z0 - kmax - shift, z0 + kmax + shift, y0, x0, half)
     zc = z0 - zlo
     best = _walk_z(sub, valid, zc, params, px)
     dz, snr = _scan_z(sub, valid, zc, best, shift, params, px)
@@ -96,7 +96,7 @@ def _walk_z(sub: np.ndarray, valid: np.ndarray, zc: int, params: RingParams, px:
             for zi in (lo, hi):
                 if 0 <= zi < sub.shape[0]:
                     slab = np.minimum(slab, sub[zi])
-        img = _prepare(slab, params, px)
+        img = prepare(slab, params.smooth_sigma_a, params.highpass_sigma_a, px)
         y, x, r = _locate(img, centre, sweep, sigma, params, px)
         r = _radial_radius(img, valid, (y, x), r, params, px)
         step = Step(k, y, x, r, ring_snr(img, valid, (y, x), r, params, px))
@@ -115,11 +115,6 @@ def _walk_z(sub: np.ndarray, valid: np.ndarray, zc: int, params: RingParams, px:
 def _distance(shape: tuple[int, ...], centre: tuple[float, float]) -> np.ndarray:
     yy, xx = np.indices(shape)
     return np.hypot(yy - centre[0], xx - centre[1])
-
-# _prepare: smoothed, background-flattened minimum projection
-def _prepare(slab: np.ndarray, params: RingParams, px: float) -> np.ndarray:
-    smoothed = ndimage.gaussian_filter(slab, params.smooth_sigma_a / px)
-    return smoothed - ndimage.gaussian_filter(smoothed, params.highpass_sigma_a / px)
 
 # _locate: (y, x, radius_px) maximising ring NCC within locate_range of the previous centre
 def _locate(img: np.ndarray, centre: tuple[float, float], radii: np.ndarray, sigma: float, params: RingParams, px: float) -> tuple[float, float, float]:
@@ -141,19 +136,8 @@ def _scan_z(sub: np.ndarray, valid: np.ndarray, zc: int, best: Step, shift: int,
     scan = (0, best.snr)
     for dz in range(-shift, shift + 1):
         lo, hi = max(zc + dz - best.k, 0), min(zc + dz + best.k, sub.shape[0] - 1)
-        img = _prepare(sub[lo : hi + 1].min(axis=0), params, px)
+        img = prepare(sub[lo : hi + 1].min(axis=0), params.smooth_sigma_a, params.highpass_sigma_a, px)
         snr = ring_snr(img, valid, (best.y, best.x), best.radius_px, params, px)
         if snr > scan[1]:
             scan = (dz, snr)
     return scan
-
-# _crop: sub-volume (z range clipped) round (y, x) with edge padding, the xy mask of real voxels, and the first z index
-def _crop(vol: np.ndarray, z0: int, z1: int, y: int, x: int, half: int) -> tuple[np.ndarray, np.ndarray, int]:
-    z0, z1 = max(z0, 0), min(z1, vol.shape[0] - 1)
-    ys = slice(max(y - half, 0), min(y + half + 1, vol.shape[1]))
-    xs = slice(max(x - half, 0), min(x + half + 1, vol.shape[2]))
-    block = np.asarray(vol[z0 : z1 + 1, ys, xs], dtype=np.float32)
-    pad_y = (ys.start - (y - half), (y + half + 1) - ys.stop)
-    pad_x = (xs.start - (x - half), (x + half + 1) - xs.stop)
-    valid = np.pad(np.ones(block.shape[1:], dtype=bool), (pad_y, pad_x))
-    return np.pad(block, ((0, 0), pad_y, pad_x), mode='edge'), valid, z0

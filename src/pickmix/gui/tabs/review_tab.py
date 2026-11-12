@@ -3,34 +3,55 @@ pickmix: Review tab, every pick with filters and a preview of the selected pick
 '''
 
 # Import external dependencies
-import numpy as np
+import math, numpy as np
+from dataclasses import dataclass
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
-    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 # Import internal pickmix objects
 from pickmix.estimate.registry import Fit
-from pickmix.estimates import EstimateService
+from pickmix.estimates import EstimateService, effective_box_a
 from pickmix.export import Item
 from pickmix.geometry import Parent
-from pickmix.gui.components.images import label_image, to_pixmap
+from pickmix.gui.components.images import draw_box, label_image, to_pixmap
+from pickmix.gui.components.patch import Patch, PatchCanvas
 from pickmix.gui.components.status import fit_status, status_item
-from pickmix.gui.style import image_well, quiet_table, tidy, white
+from pickmix.gui.components.toast import notify
+from pickmix.gui.style import image_well, quiet_table, tidy, tint_mark, white
 from pickmix.gui.workers import post, run_in_background
 from pickmix.items import flagged, items, matched
 from pickmix.loader import Loader
 from pickmix.model import Pick, Session
+from pickmix.validate import validate_kind
 
 # _COLUMNS: pick table headings
-_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate']
+_COLUMNS: list[str] = ['Tomogram', 'Kind', 'x', 'y', 'z', 'SNR', 'Flag', 'Estimate', 'Box (Å)', 'Score']
 
 # _CROP: half-width in voxels of the preview crops
 _CROP: int = 64
 
 # _PREVIEW: edge in pixels of the preview images
 _PREVIEW: int = 220
+
+# _PATCH_SCALE: edge of the editable patch as a multiple of the box edge
+_PATCH_SCALE: float = 1.5
+
+# _Rect: left, top, right and bottom of a rectangle in the pixels of an array
+type _Rect = tuple[float, float, float, float]
+
+# Preview: what the four panels show for one pick
+@dataclass(frozen=True)
+class Preview:
+    xy: np.ndarray
+    xz: np.ndarray
+    yz: np.ndarray
+    patch: Patch
+    outlines: tuple[_Rect, _Rect, _Rect]
+    slabs: tuple[_Rect, _Rect] | None
+    colour: str
 
 # _COLUMN_GAP: pixels between the filters, the buttons and the count
 _COLUMN_GAP: int = 40
@@ -76,6 +97,14 @@ class ReviewTab(QWidget):
         reload_icon = white('cached')
         if reload_icon is not None:
             self.reestimate_button.setIcon(reload_icon)
+            tint_mark(self.reestimate_button, 'cached', 16)
+        self.validate_button = QPushButton('Validate')
+        self.validate_button.setToolTip(
+            'Score each pick of the chosen kind (every kind if all) against the average of its kind, and flag those far below the rest as lowcc. '
+            'A kind with several distinct views scores low throughout, and a filament needs a good direction.'
+        )
+        self.worst_first_box = QCheckBox('Worst first')
+        self.worst_first_box.setToolTip('Order the picks by validation score, lowest first, those without a current score last')
         self.table = QTableWidget(0, len(_COLUMNS))
         self.table.setHorizontalHeaderLabels(_COLUMNS)
         quiet_table(self.table)
@@ -91,6 +120,9 @@ class ReviewTab(QWidget):
         self.xy_label.setToolTip('The slice through the pick')
         self.xz_label.setToolTip('The plane through the pick along z, at its y position')
         self.yz_label.setToolTip('The plane through the pick along z, at its x position')
+        self.patch_canvas = PatchCanvas(_PREVIEW)
+        self.patch_canvas.setToolTip('The slice through the pick, close up. Drag the dot or the box to move the pick')
+        self._previewed: tuple | None = None
         for label in (self.xy_label, self.xz_label, self.yz_label):
             image_well(label, _PREVIEW)
         # controls: filters over two rows, then buttons, then the shown count, all centred on the same line
@@ -101,11 +133,13 @@ class ReviewTab(QWidget):
         ):
             filters.addWidget(QLabel(text), row, col)
             filters.addWidget(widget, row, col + 1)
+        filters.addWidget(self.worst_first_box, 2, 0, 1, 2)
         filters.setColumnMinimumWidth(2, 24)
         buttons = QGridLayout()
         buttons.addWidget(self.delete_selected_button, 0, 0)
         buttons.addWidget(self.delete_shown_button, 0, 1)
-        buttons.addWidget(self.reestimate_button, 1, 0, 1, 2)
+        buttons.addWidget(self.reestimate_button, 1, 0)
+        buttons.addWidget(self.validate_button, 1, 1)
         controls = QHBoxLayout()
         controls.addLayout(filters)
         controls.addSpacing(_COLUMN_GAP)
@@ -114,14 +148,18 @@ class ReviewTab(QWidget):
         controls.addWidget(self.count_label, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         controls.setAlignment(filters, Qt.AlignmentFlag.AlignVCenter)
         controls.setAlignment(buttons, Qt.AlignmentFlag.AlignVCenter)
-        previews = QVBoxLayout()
-        previews.addWidget(self.xy_label)
-        previews.addWidget(self.xz_label)
-        previews.addWidget(self.yz_label)
-        previews.addStretch()
+        # XY and the editable patch above, XZ and YZ below
+        self.previews = QGridLayout()
+        self.previews.addWidget(self.xy_label, 0, 0)
+        self.previews.addWidget(self.patch_canvas, 0, 1)
+        self.previews.addWidget(self.xz_label, 1, 0)
+        self.previews.addWidget(self.yz_label, 1, 1)
+        preview_column = QVBoxLayout()
+        preview_column.addLayout(self.previews)
+        preview_column.addStretch()
         body = QHBoxLayout()
         body.addWidget(self.table, 1)
-        body.addLayout(previews)
+        body.addLayout(preview_column)
         layout = QVBoxLayout(self)
         tidy(layout)
         layout.addLayout(controls)
@@ -129,18 +167,22 @@ class ReviewTab(QWidget):
         for combo in (self.kind_filter, self.tomo_filter):
             combo.currentIndexChanged.connect(self.refresh)
         self.flag_filter.currentIndexChanged.connect(self.refresh)
+        self.worst_first_box.toggled.connect(self.refresh)
         self.snr_spin.valueChanged.connect(self.refresh)
         self.table.itemSelectionChanged.connect(self._preview)
         self.table.cellDoubleClicked.connect(self._double_clicked)
+        self.patch_canvas.move_requested.connect(self._move)
         self.delete_selected_button.clicked.connect(self.delete_selected)
         self.delete_shown_button.clicked.connect(self._ask_delete_shown)
         self.reestimate_button.clicked.connect(self._reestimate)
+        self.validate_button.clicked.connect(self._validate)
 
     # set_session: show a session and follow its picks and estimates
     def set_session(self, session: Session, loader: Loader, service: EstimateService) -> None:
         self.session, self.loader, self.service = session, loader, service
         session.store.listeners.append(self._schedule)
         service.store.listeners.append(self._schedule)
+        service.validation.listeners.append(self._schedule)
         self.refresh_kinds()
 
     # refresh_kinds: rebuild the kind and tomogram filters from the config
@@ -175,9 +217,18 @@ class ReviewTab(QWidget):
             status = fit_status(state, flag)
             tip = {'running': f'Estimate {state}', 'ok': 'Estimate is fine'}.get(status, flag)
             self.table.setItem(r, 7, status_item(status, tip))
+            self.table.setItem(r, 8, QTableWidgetItem('' if pick.box_a is None else f'{pick.box_a:.0f}'))
+            score = self.service.validation.score(pick)
+            self.table.setItem(r, 9, QTableWidgetItem('' if score is None else f'{score:.2f}'))
+        # the box column is only worth its room once a pick has a box of its own
+        self.table.setColumnHidden(8, all(p.box_a is None for p in self._shown))
+        # the score column is only worth its room once validation has scored a pick shown
+        self.table.setColumnHidden(9, all(self.service.validation.score(p) is None for p in self._shown))
         if selected in [p.id for p in self._shown]:
             self.table.selectRow([p.id for p in self._shown].index(selected))
         self.table.blockSignals(False)
+        # a moved pick or a new fit changes what the previews show, but the blocked signal will not say so
+        self._preview(changed_only=True)
         self.count_label.setText(f'{len(rows)} shown of {self.session.store.total()}')
 
     # delete_selected: remove the selected pick; returns how many went
@@ -213,7 +264,8 @@ class ReviewTab(QWidget):
     # _flagged: the fit with noparent added to its flags when the pick's kind has a parent and the pick found none
     def _flagged(self, kind: str, pick: Pick, fit: Fit, parents: dict[int, Parent]) -> Fit:
         assert self.session is not None
-        return flagged(self.session, kind, pick, fit, parents)
+        assert self.service is not None
+        return flagged(self.session, kind, pick, fit, parents, self.service.validation)
 
     # _filtered: picks of known kinds passing the filters, in tomogram then kind order, with their current fit
     def _filtered(self) -> list[tuple[Pick, Fit | None]]:
@@ -237,6 +289,9 @@ class ReviewTab(QWidget):
                 continue
             out.append((pick, fit))
         out.sort(key=lambda pf: (order.get(pf[0].tomogram, len(order)), kinds[pf[0].kind]))
+        if self.worst_first_box.isChecked():
+            # a stable sort, so picks without a score keep their order at the end
+            out.sort(key=lambda pf: math.inf if (score := self.service.validation.score(pf[0])) is None else score)
         return out
 
     # _ask_delete_shown: confirm, then delete every pick shown
@@ -252,26 +307,90 @@ class ReviewTab(QWidget):
         if self.service is not None:
             self.service.request_all()
 
+    # _validate: score the picks of the chosen kind, or of every kind, off the GUI thread, and say what was found
+    def _validate(self) -> None:
+        if self.session is None or self.service is None:
+            return
+        chosen = self.kind_filter.currentText()
+        names = [k for k in self.session.project.config.kinds if chosen in ('(all)', k) and self.session.store.total(k)]
+        if not names:
+            notify('No picks to validate')
+            return
+        self.validate_button.setEnabled(False)
+        run_in_background(lambda: self.validate(names), self._validated, self._validate_failed)
+
+    # validate: validate each kind, returning one line about each; a kind that cannot be validated says why in its line
+    def validate(self, names: list[str]) -> list[str]:
+        assert self.session is not None and self.service is not None
+        lines = []
+        for name in names:
+            try:
+                s = validate_kind(name, self.session, self.service)
+            except ValueError as e:
+                lines.append(str(e))
+                continue
+            skipped = f', {s.skipped} without a fit skipped' if s.skipped else ''
+            lines.append(f'{name}: scored {s.scored}, median {s.median:.2f}, {s.flagged} flagged lowcc{skipped}')
+        return lines
+
+    # _validated: say what validation found
+    def _validated(self, lines: list[str]) -> None:
+        self.validate_button.setEnabled(True)
+        notify('; '.join(lines))
+
+    # _validate_failed: say why validation stopped
+    def _validate_failed(self, message: str) -> None:
+        self.validate_button.setEnabled(True)
+        notify(message)
+
     # _double_clicked: open the pick in the Pick tab
     def _double_clicked(self, row: int, _col: int) -> None:
         if 0 <= row < len(self._shown):
             self.open_pick.emit(self._shown[row].tomogram, self._shown[row].id)
 
-    # _preview: crops of the selected pick, read off the GUI thread
-    def _preview(self) -> None:
+    # _move: the patch was dragged
+    def _move(self, pick_id: int, x: float, y: float) -> None:
+        if self.session is not None:
+            self.session.store.move(pick_id, x, y)
+
+    # _preview: four panels for selected pick, read off GUI thread
+    def _preview(self, *, changed_only: bool = False) -> None:
         row = self.table.currentRow()
         if self.loader is None or self.service is None or not 0 <= row < len(self._shown):
             return
         pick = self._shown[row]
         fit = self.service.store.get(pick)
-        centre = (fit.x, fit.y, fit.z) if fit else (pick.x, pick.y, pick.z)
+        key = (pick.id, pick.x, pick.y, pick.z, None if fit is None else fit.model_dump_json())
+        if changed_only and key == self._previewed:
+            return
+        self._previewed = key
         self._token += 1
         token = self._token
         run_in_background(
-            lambda: self.crops(pick.tomogram, centre),
-            lambda crops: self._show_preview(token, crops),
+            lambda: self.preview(pick, fit),
+            lambda result: self._show_preview(token, result),
             lambda message: self.xy_label.setText(message),
         )
+
+    # preview: crops, patch and outlines for a pick around its fit centre, or around pick when it has no fit
+    def preview(self, pick: Pick, fit: Fit | None) -> Preview:
+        assert self.loader is not None and self.session is not None
+        project = self.session.project
+        kind, px = project.config.kinds[pick.kind], project.tomos[pick.tomogram].pixel_size
+        centre = (fit.x, fit.y, fit.z) if fit else (pick.x, pick.y, pick.z)
+        xy, xz, yz = self.crops(pick.tomogram, centre)
+        vol = self.loader.open(pick.tomogram).result().vol
+        x0, y0, z0 = _starts(centre, vol.shape)
+        half = effective_box_a(pick, kind, fit) / px / 2
+        # voxel centres sit half a pixel in; box is a cube, so z extent is same as width
+        cx, cy, cz = centre[0] - x0 + 0.5, centre[1] - y0 + 0.5, centre[2] - z0 + 0.5
+        outlines = ((cx - half, cy - half, cx + half, cy + half), (cx - half, cz - half, cx + half, cz + half), (cy - half, cz - half, cy + half, cz + half))
+        slabs = None if fit is None else ((cx - half, fit.z_lo - z0, cx + half, fit.z_hi + 1 - z0), (cy - half, fit.z_lo - z0, cy + half, fit.z_hi + 1 - z0))
+        edge = max(math.ceil(_PATCH_SCALE * 2 * half), 4)
+        sl = self.loader.slice(pick.tomogram, min(max(round(centre[2]), 0), vol.shape[0] - 1))
+        left, top = round(centre[0]) - edge // 2, round(centre[1]) - edge // 2
+        patch = Patch(_padded(sl, left, top, edge), (left, top), pick.id, (pick.x, pick.y), (centre[0], centre[1]), 2 * half, kind.colour, (vol.shape[2], vol.shape[1]), None if fit is None else fit.psi_deg)
+        return Preview(xy, xz, yz, patch, outlines, slabs, kind.colour)
 
     # crops: (xy, xz, yz) arrays around a centre: the slice through it, and the planes through it along z at its y and at its x
     def crops(self, tomogram: str, centre: tuple[float, float, float]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -279,17 +398,36 @@ class ReviewTab(QWidget):
         vol = self.loader.open(tomogram).result().vol
         x, y, z = (round(v) for v in centre)
         z = min(max(z, 0), vol.shape[0] - 1)
-        xs = slice(max(x - _CROP, 0), x + _CROP)
-        ys = slice(max(y - _CROP, 0), y + _CROP)
-        zs = slice(max(z - _CROP, 0), z + _CROP)
+        xs, ys, zs = (slice(max(c - _CROP, 0), c + _CROP) for c in (x, y, z))
         xy = self.loader.slice(tomogram, z)[ys, xs]
         xz = np.asarray(vol[zs, min(max(y, 0), vol.shape[1] - 1), xs], dtype=np.float32)
         yz = np.asarray(vol[zs, ys, min(max(x, 0), vol.shape[2] - 1)], dtype=np.float32)
         return xy, xz, yz
 
-    # _show_preview: draw the crops unless a newer selection has been made
-    def _show_preview(self, token: int, crops: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
+    # _show_preview: draw panels unless a newer selection has been made
+    def _show_preview(self, token: int, preview: Preview) -> None:
         if token != self._token:
             return
-        for label, crop, name in zip((self.xy_label, self.xz_label, self.yz_label), crops, ('XY', 'XZ', 'YZ'), strict=True):
-            label.setPixmap(label_image(to_pixmap(crop, _PREVIEW), name))
+        crops = (preview.xy, preview.xz, preview.yz)
+        for i, (label, crop, name) in enumerate(zip((self.xy_label, self.xz_label, self.yz_label), crops, ('XY', 'XZ', 'YZ'), strict=True)):
+            pixmap = to_pixmap(crop, _PREVIEW)
+            scale = pixmap.width() / crop.shape[1]
+            # the z range the fit used goes under the box so the box is still the outermost line
+            if preview.slabs is not None and i:
+                pixmap = draw_box(pixmap, preview.slabs[i - 1], scale, preview.colour, dotted=True)
+            label.setPixmap(label_image(draw_box(pixmap, preview.outlines[i], scale, preview.colour), name))
+        self.patch_canvas.set_patch(preview.patch)
+
+# _starts: first x, y and z voxel of the crops around a centre, as `crops` cuts them
+def _starts(centre: tuple[float, float, float], shape: tuple[int, ...]) -> tuple[int, int, int]:
+    x, y, z = (round(v) for v in centre)
+    z = min(max(z, 0), shape[0] - 1)
+    return max(x - _CROP, 0), max(y - _CROP, 0), max(z - _CROP, 0)
+
+# _padded: an edge x edge crop of a slice with its top-left at voxel (left, top), padded with slice mean where it leaves slice
+def _padded(img: np.ndarray, left: int, top: int, edge: int) -> np.ndarray:
+    out = np.full((edge, edge), img.mean(), dtype=np.float32)
+    ys, xs = slice(max(top, 0), min(top + edge, img.shape[0])), slice(max(left, 0), min(left + edge, img.shape[1]))
+    if ys.stop > ys.start and xs.stop > xs.start:
+        out[ys.start - top : ys.stop - top, xs.start - left : xs.stop - left] = img[ys, xs]
+    return out

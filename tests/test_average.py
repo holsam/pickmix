@@ -7,7 +7,7 @@ import mrcfile, numpy as np, pytest
 from pathlib import Path
 
 # Import internal pickmix objects
-from pickmix.average import average_kind, save_average
+from pickmix.average import average_kind, box_images, save_average
 from pickmix.config import Config, Kind
 from pickmix.estimate.registry import Fit
 from pickmix.model import Pick
@@ -28,6 +28,29 @@ def _tomogram(path: Path, name: str, centres: list[tuple[int, int, int]], voxel:
 # _item: a pick of kind yellow with a fit at the same place
 def _item(i: int, tomogram: str, x: float, y: float, z: float) -> tuple[Pick, Fit]:
     return Pick(i, tomogram, 'yellow', x, y, z), Fit(x=x, y=y, z=z, radius_a=30.0, box_a=100.0, snr=0, z_lo=round(z), z_hi=round(z))
+
+# _rod_tomogram: an 80-voxel cube at 5 A with a dark rod through the middle at angle_deg from the x axis towards y, in planes 36 to 44
+def _rod_tomogram(path: Path, name: str, angle_deg: float) -> Tomogram:
+    rng = np.random.default_rng(7)
+    vol = rng.normal(0.0, 0.3, (80, 80, 80)).astype(np.float32)
+    yy, xx = np.mgrid[:80, :80]
+    ux, uy = np.cos(np.radians(angle_deg)), np.sin(np.radians(angle_deg))
+    along = (xx - 40) * ux + (yy - 40) * uy
+    across = -(xx - 40) * uy + (yy - 40) * ux
+    vol[36:45] -= 1.0 * np.exp(-0.5 * (across / 2.0) ** 2) * (np.abs(along) <= 22)
+    with mrcfile.new(path / f'{name}.mrc') as mrc:
+        mrc.set_data(vol)
+        mrc.voxel_size = 5.0
+    return Tomogram(name, name, path / f'{name}.mrc', None, 5.0, (80, 80, 80), 5.0 / 4, (320, 320, 320))
+
+# _rod_items: one pick per rod tomogram with a fit at its middle that has the rod's planes and, unless psi is False, its direction
+def _rod_items(angles: dict[str, float], *, psi: bool = True) -> list[tuple[Pick, Fit]]:
+    return [(Pick(i, name, 'rod', 40, 40, 40), Fit(x=40, y=40, z=40, radius_a=25.0, box_a=250.0, snr=5.0, z_lo=36, z_hi=44, psi_deg=angle if psi else None)) for i, (name, angle) in enumerate(angles.items(), start=1)]
+
+# _bar_depth: how much darker the middle rows of a mean image are than the rows 8 pixels either side, in units of the image's own spread
+def _bar_depth(img: np.ndarray) -> float:
+    c = img.shape[0] // 2
+    return float((img[c - 8 : c - 5].mean() + img[c + 6 : c + 9].mean()) / 2 - img[c - 1 : c + 2].mean()) / float(img.std())
 
 # TestAverage: mean projections, montage and files
 class TestAverage:
@@ -77,3 +100,110 @@ class TestAverage:
         r = average_kind('yellow', Kind(marker_a=60, box_a=100), items, tomos, config)
         assert r.labels == ['1 (T)', '2 (T)', '1 (U)'] and r.grid == 2 and r.pad == 2
         assert r.montage.shape == (r.grid * (r.box_px + r.pad) + r.pad,) * 2
+
+    # test_rods_line_up: rods at four different angles average to one bar along x, sharper than the same rods averaged without turning them
+    def test_rods_line_up(self, tmp_path: Path) -> None:
+        angles = {'A': 0.0, 'B': 45.0, 'C': 90.0, 'D': 135.0}
+        tomos = {name: _rod_tomogram(tmp_path, name, angle) for name, angle in angles.items()}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        kind = Kind(marker_a=100, box_a=250)
+        aligned = average_kind('rod', kind, _rod_items(angles), tomos, config).overall
+        plain = average_kind('rod', kind, _rod_items(angles, psi=False), tomos, config).overall
+        assert aligned.shape == plain.shape == (50, 50)
+        assert _bar_depth(aligned) > 2.0 * _bar_depth(plain)
+        assert average_kind('rod', kind, _rod_items(angles), tomos, config).aligned and not average_kind('rod', kind, _rod_items(angles, psi=False), tomos, config).aligned
+        # a bar along x is dark across the middle rows end to end, and darker in the middle than at the top of the image
+        c = aligned.shape[0] // 2
+        assert aligned[c - 1 : c + 2, 10:40].mean() < aligned[3:6, 10:40].mean() - 0.3
+
+    # test_turned_by_its_own_angle: one rod at 30 degrees turned by 30 lies along x, and turned by the wrong angle does not
+    def test_turned_by_its_own_angle(self, tmp_path: Path) -> None:
+        tomos = {'A': _rod_tomogram(tmp_path, 'A', 30.0)}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        kind = Kind(marker_a=100, box_a=250)
+        right = average_kind('rod', kind, _rod_items({'A': 30.0}), tomos, config).overall
+        wrong = average_kind('rod', kind, _rod_items({'A': -30.0}), tomos, config).overall
+        assert _bar_depth(right) > 2.0 * _bar_depth(wrong)
+
+    # test_slab_follows_fit: a filament takes the planes of its fit, so a fit that misses the rod averages to no bar
+    def test_slab_follows_fit(self, tmp_path: Path) -> None:
+        tomos = {'A': _rod_tomogram(tmp_path, 'A', 30.0)}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        kind = Kind(marker_a=100, box_a=250)
+        on = _rod_items({'A': 30.0})
+        off = [(p, f.model_copy(update={'z_lo': 10, 'z_hi': 18})) for p, f in on]
+        assert _bar_depth(average_kind('rod', kind, on, tomos, config).overall) > 3.0 * abs(_bar_depth(average_kind('rod', kind, off, tomos, config).overall))
+
+    # test_kinds_without_direction_unchanged: a fit with no direction is cut and projected exactly as before
+    def test_kinds_without_direction_unchanged(self, tmp_path: Path) -> None:
+        tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20)])}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        r = average_kind('yellow', Kind(marker_a=60, box_a=100), [_item(1, 'T', 12, 20, 20), _item(2, 'T', 28, 20, 20)], tomos, config)
+        from pickmix.extract import crop_box
+        from pickmix.utils.io import load_volume
+        vol = load_volume(tomos['T'], source=config.source)
+        expected = []
+        for x in (12, 28):
+            img = crop_box(vol, (20, 20, x), 20)[10 - 6 : 10 + 6 + 1].mean(axis=0)
+            expected.append((img - img.mean()) / img.std())
+        assert np.allclose(r.overall, np.mean(expected, axis=0))
+
+
+# _sphere_tomogram: a 60-voxel cube at 5 A with one bright sphere of the given radius in voxels at its middle, in noise
+def _sphere_tomogram(path: Path, name: str, radius: float) -> Tomogram:
+    rng = np.random.default_rng(11)
+    vol = rng.normal(0.0, 0.1, (60, 60, 60)).astype(np.float32)
+    zz, yy, xx = np.mgrid[:60, :60, :60]
+    vol[np.hypot(np.hypot(xx - 30, yy - 30), zz - 30) <= radius] += 1.0
+    with mrcfile.new(path / f'{name}.mrc') as mrc:
+        mrc.set_data(vol)
+        mrc.voxel_size = 5.0
+    return Tomogram(name, name, path / f'{name}.mrc', None, 5.0, (60, 60, 60), 5.0 / 4, (240, 240, 240))
+
+# TestAverageLowest: the montage can show the lowest scoring picks first
+class TestAverageLowest:
+    # test_lowest_first: with scores the montage lists the lowest first with their scores in the labels, and the mean is unchanged
+    def test_lowest_first(self, tmp_path: Path) -> None:
+        tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20), (20, 12, 20), (20, 28, 20)])}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        items = [_item(i, 'T', x, y, 20) for i, (x, y) in enumerate([(12, 20), (28, 20), (20, 12), (20, 28)], start=1)]
+        kind = Kind(marker_a=60, box_a=100)
+        plain = average_kind('yellow', kind, items, tomos, config)
+        ranked = average_kind('yellow', kind, items, tomos, config, scores={1: 0.9, 2: 0.2, 3: 0.5})
+        assert [label.split()[0] for label in ranked.labels] == ['2', '3', '1', '4']
+        assert ranked.labels[0].endswith('0.20') and ranked.labels[1].endswith('0.50')
+        # a pick without a score keeps its plain label, and the scores change nothing else
+        assert ranked.labels[3] == plain.labels[3] and np.array_equal(plain.overall, ranked.overall)
+
+# TestBoxImages: the normalised box images behind the average
+class TestBoxImages:
+    # test_images_match_average: the images come in the order the average takes them, normalised, and their mean is the average
+    def test_images_match_average(self, tmp_path: Path) -> None:
+        tomos = {'T': _tomogram(tmp_path, 'T', [(12, 20, 20), (28, 20, 20)]), 'U': _tomogram(tmp_path, 'U', [(20, 28, 20)])}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        items = [_item(1, 'T', 12, 20, 20), _item(3, 'U', 20, 28, 20), _item(2, 'T', 28, 20, 20)]
+        pairs, box = box_images('yellow', Kind(marker_a=60, box_a=100), items, tomos, config)
+        assert [p.id for p, _ in pairs] == [1, 2, 3] and box == 20
+        assert all(abs(img.mean()) < 1e-5 and abs(img.std() - 1.0) < 1e-4 for _, img in pairs)
+        assert np.allclose(np.mean([img for _, img in pairs], axis=0), average_kind('yellow', Kind(marker_a=60, box_a=100), items, tomos, config).overall)
+
+    # test_own_box_resampled: a pick with a box of its own is cut at that size and resampled, so a big and a small particle look alike
+    def test_own_box_resampled(self, tmp_path: Path) -> None:
+        tomos = {'S': _sphere_tomogram(tmp_path, 'S', 4.0), 'B': _sphere_tomogram(tmp_path, 'B', 8.0)}
+        config = Config(raw_dir=tmp_path, tomograms_star=tmp_path / 't.star', out_dir=tmp_path / 'out')
+        kind = Kind(marker_a=100, pick_mode='bounds')
+
+        def items(own: bool) -> list[tuple[Pick, Fit]]:
+            small = Pick(1, 'S', 'yellow', 30, 30, 30, box_a=100.0 if own else None)
+            big = Pick(2, 'B', 'yellow', 30, 30, 30, box_a=200.0 if own else None)
+            return [
+                (small, Fit(x=30, y=30, z=30, radius_a=20.0, box_a=100.0, snr=0, z_lo=30, z_hi=30)),
+                (big, Fit(x=30, y=30, z=30, radius_a=40.0, box_a=200.0, snr=0, z_lo=30, z_hi=30)),
+            ]
+
+        def agreement(own: bool) -> float:
+            (_, a), (_, b) = box_images('yellow', kind, items(own), tomos, config)[0]
+            return float((a * b).mean())
+
+        assert box_images('yellow', kind, items(True), tomos, config)[1] == 40
+        assert agreement(True) > 0.9 and agreement(True) > agreement(False) + 0.2

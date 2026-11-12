@@ -26,6 +26,15 @@ class TestKindDialog:
         qtbot.addWidget(dialog)
         assert dialog.values() == ('green', kind)
 
+    # test_pick_mode_round_trip: pick mode and padding are shown and padding is only live in bounds mode
+    def test_pick_mode_round_trip(self, qtbot: QtBot) -> None:
+        kind = Kind(marker_a=40, pick_mode='bounds', bounds_padding=0.35)
+        dialog = KindDialog(None, 'tube', kind, [], _ok)
+        qtbot.addWidget(dialog)
+        assert dialog.values() == ('tube', kind) and dialog.padding_spin.isEnabled()
+        dialog.mode_box.setCurrentText('point')
+        assert not dialog.padding_spin.isEnabled() and dialog.values()[1].pick_mode == 'point'
+
     # test_defaults_when_adding: a new kind starts as an editable passthrough with no tilt prior
     def test_defaults_when_adding(self, qtbot: QtBot) -> None:
         dialog = KindDialog(None, None, None, [], _ok)

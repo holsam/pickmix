@@ -71,6 +71,8 @@ def export_kind(
         columns += ['rlnTomoSubtomogramRot', 'rlnTomoSubtomogramTilt', 'rlnTomoSubtomogramPsi', 'rlnAngleRot', 'rlnAngleTilt', 'rlnAnglePsi']
     if kind.tilt_prior_deg is not None:
         columns.append('rlnAngleTiltPrior')
+    if kind.estimator == 'filament':
+        columns.append('rlnAnglePsiPrior')
     rows = []
     for p, f in kept:
         row = [p.tomogram, *(f'{v:.2f}' for v in to_centred_angstrom((f.x, f.y, f.z), tomos[p.tomogram])), f'{f.snr:.3f}']
@@ -80,6 +82,8 @@ def export_kind(
             row += [f'{g.rot:.4f}', f'{g.tilt:.4f}', f'{g.psi:.4f}', '0.0000', '0.0000', '0.0000']
         if kind.tilt_prior_deg is not None:
             row.append(f'{kind.tilt_prior_deg:.4f}')
+        if kind.estimator == 'filament':
+            row.append(f'{f.psi_deg or 0.0:.4f}')
         rows.append(row)
     folder = out_dir / 'relion' / name
     for stale in folder.glob('*.star'):

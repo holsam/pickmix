@@ -6,7 +6,7 @@ pickmix: turning arrays into images and pixmaps for gui
 import math, numpy as np
 from collections.abc import Callable
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
 # Import internal pickmix objects
@@ -57,6 +57,19 @@ def to_image(arr: np.ndarray) -> QImage:
 def to_pixmap(arr: np.ndarray, size: int) -> QPixmap:
     pixmap = QPixmap.fromImage(to_image(arr))
     return pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+
+# draw_box: a copy of a pixmap with a rectangle outlined on it
+def draw_box(pixmap: QPixmap, rect: tuple[float, float, float, float], scale: float, colour: str, *, dotted: bool = False) -> QPixmap:
+    out = QPixmap(pixmap)
+    painter = QPainter(out)
+    pen = QPen(QColor(colour))
+    pen.setWidth(1)
+    pen.setStyle(Qt.PenStyle.DotLine if dotted else Qt.PenStyle.SolidLine)
+    painter.setPen(pen)
+    left, top, right, bottom = (v * scale for v in rect)
+    painter.drawRect(QRect(round(left), round(top), round(right - left), round(bottom - top)))
+    painter.end()
+    return out
 
 # label_cells: a copy of a montage image with a small translucent box of text in the corner of each cell; cells are grid x grid, row by row, each pad pixels apart (times scale when the image has been resized)
 def label_cells(image: QImage, labels: list[str], grid: int, pad: int, *, scale: float = 1.0) -> QImage:

@@ -46,6 +46,8 @@ class AveragePane(QGroupBox):
         self.save_button.setEnabled(False)
         self.per_tomogram_box = QCheckBox('Include per-tomogram means')
         self.per_tomogram_box.setToolTip('Also write a mean image for every tomogram in the list')
+        self.worst_box = QCheckBox('Montage lowest scoring first')
+        self.worst_box.setToolTip('Show the lowest-scoring picks from kind validation with their scores.')
         self.results_table = QTableWidget(0, 2)
         self.results_table.setHorizontalHeaderLabels(['Tomogram', 'Picks'])
         quiet_table(self.results_table)
@@ -76,6 +78,7 @@ class AveragePane(QGroupBox):
         left_box.addLayout(run_row)
         left_box.addWidget(self.summary)
         left_box.addWidget(self.results_table, 1)
+        left_box.addWidget(self.worst_box)
         left_box.addLayout(tick_row)
         left_box.addWidget(self.save_button)
         mean = QVBoxLayout()
@@ -141,7 +144,12 @@ class AveragePane(QGroupBox):
         self.run_button.setEnabled(False)
         self.spinner.set_status('running', f'Averaging {len(items)} picks...')
         notify(f'Averaging {len(items)} picks of {name}...')
-        run_in_background(lambda: average_kind(name, config.kinds[name], items, tomos, config), self._done, self._failed)
+        scores = None
+        if self.worst_box.isChecked() and self.service is not None:
+            scores = {p.id: s for p, _ in items if (s := self.service.validation.score(p)) is not None}
+            if not scores:
+                notify('No validation scores for this kind yet so montage is spread evenly, validate kind in Review tab.')
+        run_in_background(lambda: average_kind(name, config.kinds[name], items, tomos, config, scores=scores or None), self._done, self._failed)
 
     # save: write the averages of the shown result, and the labelled montage beside them; returns the paths
     def save(self) -> list[str]:
@@ -188,7 +196,8 @@ class AveragePane(QGroupBox):
         self.run_button.setEnabled(True)
         self.save_button.setEnabled(True)
         self.spinner.set_status(None)
-        notify(f'Averaged {result.count} boxes of {result.box_px} px (Save to write them)')
+        turned = '. Filaments are oriented along x, ends are not told apart' if result.aligned else ''
+        notify(f'Averaged {result.count} boxes of {result.box_px} px (Save to write them){turned}')
         self.montage_label.set_render(lambda width, height: self._tiled(result, width, height))
         rows = [('overall', result.count), *((t, result.counts[t]) for t in self._names)]
         self.results_table.setRowCount(len(rows))

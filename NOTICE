@@ -35,6 +35,13 @@ create_new_folder.svg
     Source: https://github.com/google/material-design-icons
     Modifications: fill colour set to #8a8a8a
 
+dark_mode.svg
+    Material Symbols "dark_mode" icon
+    Copyright (c) Google LLC
+    Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
+    Source: https://github.com/google/material-design-icons
+    Modifications: fill colour set to #8a8a8a
+
 delete.svg
     Material Symbols "delete" icon
     Copyright (c) Google LLC
@@ -93,6 +100,13 @@ left_panel_close.svg
 
 left_panel_open.svg
     Material Symbols "left_panel_open" icon
+    Copyright (c) Google LLC
+    Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
+    Source: https://github.com/google/material-design-icons
+    Modifications: fill colour set to #8a8a8a
+
+light_mode.svg
+    Material Symbols "light_mode" icon
     Copyright (c) Google LLC
     Licensed under the Apache License, Version 2.0 (see src/pickmix/gui/icons/LICENSE in this directory)
     Source: https://github.com/google/material-design-icons
