@@ -77,7 +77,7 @@ class CandidateStore:
             return sum(c.status == 'new' and c.kind == kind and (tomogram is None or c.tomogram == tomogram) and c.score >= min_score for c in self._items.values())
 
     # replace: the new candidates of a kind in a tomogram become these hits, except any within reach voxels of a rejected one
-    def replace(self, tomogram: str, kind: str, hits: Iterable[Hit], *, reach: float) -> None:
+    def replace(self, tomogram: str, kind: str, hits: Iterable[Hit], *, reach: float, persist: bool = True) -> None:
         with self._lock:
             rejected = [c for c in self._items.values() if c.status == 'rejected' and c.tomogram == tomogram and c.kind == kind]
             for stale in [c.id for c in self._items.values() if c.status == 'new' and c.tomogram == tomogram and c.kind == kind]:
@@ -86,7 +86,8 @@ class CandidateStore:
                 if all((h.x - r.x) ** 2 + (h.y - r.y) ** 2 + (h.z - r.z) ** 2 > reach**2 for r in rejected):
                     candidate = Candidate(next(self._ids), tomogram, kind, h.x, h.y, h.z, h.score)
                     self._items[candidate.id] = candidate
-        self._changed()
+        if persist:
+            self._changed()
 
     # reject: mark candidates as not wanted
     def reject(self, *candidate_ids: int) -> None:

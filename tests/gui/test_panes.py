@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtGui import QImage, QShortcut
 from PySide6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
+from types import SimpleNamespace
 
 # Import internal pickmix objects
 from pickmix import __version__
@@ -17,6 +18,7 @@ from pickmix.estimates import EstimateService
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 from pickmix.gui.panes.average_pane import AveragePane
 from pickmix.gui.panes.kinds_pane import KindsPane
+from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.settings_pane import NO_KIND, SettingsPane
 from pickmix.gui.panes.tomo_pane import COLOUR_CURRENT, COLOUR_PENDING, COLOUR_VISITED, TomoPane
 from pickmix.gui.panes.tomograms_pane import TomogramsPane, tomogram_status
@@ -349,6 +351,19 @@ class TestKindsPane:
         pane.show()
         qtbot.waitUntil(lambda: pane.add_button.isVisible())
         assert pane.add_button.mapTo(pane, pane.add_button.rect().topRight()).x() > pane.scroll.mapTo(pane, pane.scroll.rect().center()).x()
+
+# TestMatchPane: match pane
+class TestMatchPane:
+    # test_status_names_the_kind_being_scanned: while a scan runs the status and button follow the scan's kind, not the selected one
+    def test_status_names_the_kind_being_scanned(self, qtbot: QtBot) -> None:
+        pane = MatchPane()
+        qtbot.addWidget(pane)
+        pane.matcher = SimpleNamespace(busy=True, kind='cage', done=1, total=4, last_error='', skipped=[])  # type: ignore[assignment]
+        pane.refresh(kind='filament', picks=5, shown=0, total=0, selected=False)
+        assert pane.status.text() == 'Scanning cage: 1 of 4 tomograms' and pane.scan_button.text() == 'Scan'
+        pane.matcher.busy = False  # type: ignore[union-attr]
+        pane.refresh(kind='filament', picks=5, shown=0, total=0, selected=False)
+        assert pane.scan_button.text() == 'Scan filament'
 
 # TestSettingsPane: settings pane
 class TestSettingsPane:
