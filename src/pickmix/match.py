@@ -4,7 +4,7 @@ pickmix: template building and normalised cross-correlation search
 
 # Import external dependencies
 import math, numpy as np, os, scipy.fft
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from scipy import ndimage, signal
 
@@ -18,6 +18,9 @@ from pickmix.utils.io import Tomogram, load_volume, volume_path
 
 # _SLAB: planes of a tomogram read and binned at a time
 _SLAB: int = 32
+
+# _SCORE_VOXELS: binned voxels scored at a time, about 10 float32 copies of which are alive in a slab, bounding memory per worker
+_SCORE_VOXELS: int = 16_000_000
 
 # _CANDIDATE_POOL: peaks ranked per tomogram before the closest are thinned out
 _CANDIDATE_POOL: int = 5000
@@ -64,10 +67,12 @@ def bin_cube(cube: np.ndarray, factor: int) -> np.ndarray:
     n = cube.shape[0] // factor
     return cube.reshape(n, factor, n, factor, n, factor).mean(axis=(1, 3, 5))
 
-# bin_volume: mean of factor-sized blocks of a (z, y, x) volume, read a slab at a time
-def bin_volume(vol: np.ndarray, factor: int, *, stop: Callable[[], bool] = lambda: False) -> np.ndarray:
+# bin_volume: mean of factor-sized blocks of a (z, y, x) volume, read a slab at a time, into out when given
+def bin_volume(vol: np.ndarray, factor: int, *, stop: Callable[[], bool] = lambda: False, out: np.ndarray | None = None) -> np.ndarray:
     nz, ny, nx = (n // factor * factor for n in vol.shape)
-    out = np.empty((nz // factor, ny // factor, nx // factor), dtype=np.float32)
+    # out lets the caller bin straight into a file-backed array
+    if out is None:
+        out = np.empty((nz // factor, ny // factor, nx // factor), dtype=np.float32)
     step = max(_SLAB // factor, 1) * factor
     for z in range(0, nz, step):
         if stop():
@@ -106,9 +111,30 @@ def build_template(
     centred = mean - (mean * mask).sum() / mask.sum()
     return Template(name, (centred * mask).astype(np.float32), mask, factor, edge, pixel_size, len(positions))
 
-# score_volume: normalised cross-correlation of binned volume with template under its mask
-def score_volume(vol: np.ndarray, template: Template, *, workers: int = 2) -> np.ndarray:
-    centred = vol - vol.mean()
+# _slabs: (start, end, lo, hi) z ranges that tile nz planes in steps, each read with halo extra planes either side as (lo, hi)
+def _slabs(nz: int, step: int, halo: int) -> Iterator[tuple[int, int, int, int]]:
+    for z in range(0, nz, step):
+        end = min(z + step, nz)
+        yield z, end, max(z - halo, 0), min(end + halo, nz)
+
+# _step: planes per slab, within the voxel budget but at least two halos thick so the overlap does not dominate
+def _step(shape: tuple[int, ...], halo: int) -> int:
+    return max(_SCORE_VOXELS // (shape[1] * shape[2]), 2 * halo, 1)
+
+# _moments: mean and variance of a volume, a slab at a time in float64 so no full-size temporary is made
+def _moments(vol: np.ndarray) -> tuple[float, float]:
+    total = square = 0.0
+    for z, end, _, _ in _slabs(vol.shape[0], _step(vol.shape, 0), 0):
+        block = np.asarray(vol[z:end], dtype=np.float64)
+        total += float(block.sum())
+        square += float((block * block).sum())
+    count = vol.size
+    mean = total / count
+    return mean, max(square / count - mean * mean, 0.0)
+
+# _score_slab: normalised cross-correlation of a slab with template under its mask, given the whole volume's mean and variance
+def _score_slab(slab: np.ndarray, template: Template, mean: float, spread: float, workers: int) -> np.ndarray:
+    centred = slab - np.float32(mean)
     n = float(template.mask.sum())
     energy = float((template.kernel**2 / np.maximum(template.mask, 1e-6)).sum())
     kernel, mask = (k[::-1, ::-1, ::-1] for k in (template.kernel, template.mask))
@@ -117,10 +143,30 @@ def score_volume(vol: np.ndarray, template: Template, *, workers: int = 2) -> np
         local_sum = signal.fftconvolve(centred, mask, mode='same')
         local_square = signal.fftconvolve(centred * centred, mask, mode='same')
     variance = local_square - local_sum * local_sum / n
-    live = variance > 1e-2 * n * float(centred.var())
+    live = variance > 1e-2 * n * spread
     score = np.zeros(centred.shape, dtype=np.float32)
     score[live] = top[live] / np.sqrt(variance[live] * energy)
     return score
+
+# score_volume: score of a whole binned volume, a slab at a time with a halo of one template edge so the result matches a single pass; used for checks, as scan_peaks never holds the whole score
+def score_volume(vol: np.ndarray, template: Template, *, workers: int = 2) -> np.ndarray:
+    mean, spread = _moments(vol)
+    score = np.zeros(vol.shape, dtype=np.float32)
+    for z, end, lo, hi in _slabs(vol.shape[0], _step(vol.shape, template.edge), template.edge):
+        score[z:end] = _score_slab(vol[lo:hi], template, mean, spread, workers)[z - lo : end - lo]
+    return score
+
+# _thin: peaks best first, none closer than separation, from candidate (z, y, x) indices and their scores
+def _thin(found: np.ndarray, values: np.ndarray, separation: float, limit: int) -> list[tuple[tuple[int, int, int], float]]:
+    order = np.argsort(-values, kind='stable')[:_CANDIDATE_POOL]
+    kept: list[tuple[tuple[int, int, int], float]] = []
+    for o in order:
+        centre = found[o]
+        if all(((centre - np.array(k)) ** 2).sum() > separation**2 for k, _ in kept):
+            kept.append(((int(centre[0]), int(centre[1]), int(centre[2])), float(values[o])))
+            if len(kept) >= limit:
+                break
+    return kept
 
 # find_peaks: up to limit local maxima of a score volume at or above min_score, best first, none closer than separation voxels and none within margin voxels of a face; (z, y, x) indices
 def find_peaks(score: np.ndarray, *, min_score: float, separation: float, margin: int, limit: int) -> list[tuple[tuple[int, int, int], float]]:
@@ -132,17 +178,34 @@ def find_peaks(score: np.ndarray, *, min_score: float, separation: float, margin
     reach = max(round(separation), 1)
     # a cheap box filter finds the maxima, then the closest are thinned out best first
     maxima = (inner == ndimage.maximum_filter(inner, size=2 * reach + 1, mode='constant')) & (inner >= min_score)
-    found = np.argwhere(maxima)
-    values = inner[maxima]
-    order = np.argsort(-values)[:_CANDIDATE_POOL]
-    kept: list[tuple[tuple[int, int, int], float]] = []
-    for o in order:
-        centre = found[o]
-        if all(((centre - np.array(k)) ** 2).sum() > separation**2 for k, _ in kept):
-            kept.append(((int(centre[0]), int(centre[1]), int(centre[2])), float(values[o])))
-            if len(kept) >= limit:
-                break
-    return kept
+    return _thin(np.argwhere(maxima), inner[maxima], separation, limit)
+
+# scan_peaks: find_peaks of the score of a binned volume, a slab at a time, so memory is a slab's worth rather than the volume's; vol may be file-backed
+def scan_peaks(vol: np.ndarray, template: Template, *, workers: int, min_score: float, separation: float, margin: int, limit: int) -> list[tuple[tuple[int, int, int], float]]:
+    if min(vol.shape) <= 2 * margin:
+        return []
+    nz, ny, nx = vol.shape
+    reach = max(round(separation), 1)
+    mean, spread = _moments(vol)
+    found: list[np.ndarray] = []
+    values: list[np.ndarray] = []
+    for z, end, lo, hi in _slabs(nz, _step(vol.shape, template.edge + reach), template.edge + reach):
+        score = _score_slab(vol[lo:hi], template, mean, spread, workers)
+        # nothing within margin of a face of the whole volume
+        score[: max(margin - lo, 0)] = 0
+        score[max(nz - margin - lo, 0) :] = 0
+        score[:, :margin] = score[:, ny - margin :] = score[:, :, :margin] = score[:, :, nx - margin :] = 0
+        maxima = (score == ndimage.maximum_filter(score, size=2 * reach + 1, mode='constant')) & (score >= min_score)
+        # only the slab's own planes count; its halo is there for the filter
+        maxima[: z - lo] = False
+        maxima[end - lo :] = False
+        index, value = np.argwhere(maxima), score[maxima]
+        keep = np.argsort(-value, kind='stable')[:_CANDIDATE_POOL]
+        found.append(index[keep] + np.array([lo, 0, 0]))
+        values.append(value[keep])
+    if not found:
+        return []
+    return _thin(np.concatenate(found), np.concatenate(values), separation, limit)
 
 # scan: candidates in a binned volume, as Hits in reconstruction voxels, left out where within the separation of a known position (x, y, z in voxels)
 def scan(
@@ -150,8 +213,8 @@ def scan(
 ) -> list[Hit]:
     params = config.match
     separation = params.separation * kind.marker_a / (template.pixel_size * template.bin)
-    peaks = find_peaks(
-        score_volume(binned, template, workers=params.workers),
+    peaks = scan_peaks(
+        binned, template, workers=params.workers,
         min_score=params.min_score, separation=separation, margin=max(template.edge // 4, 1), limit=params.max_per_tomogram + len(known),
     )
     hits = [Hit(to_voxel(x, template.bin), to_voxel(y, template.bin), to_voxel(z, template.bin), s) for (z, y, x), s in peaks]
@@ -168,18 +231,20 @@ def template_positions(picks: Iterable[Pick], tomos: dict[str, Tomogram], estima
             out.append((pick.tomogram, *((fit.x, fit.y, fit.z) if fit else (pick.x, pick.y, pick.z))))
     return out
 
-# binned_volume: tomogram binned by a factor, from out_dir/cache/binned when that is newer than the volume, else made and saved there
+# binned_volume: tomogram binned by a factor, as a read-only file-backed array from out_dir/cache/binned, made there first when missing or older than the volume
 def binned_volume(tomo: Tomogram, factor: int, config: Config, stop: Callable[[], bool] = lambda: False) -> np.ndarray:
     path = volume_path(tomo, source=config.source)
     cached = config.out_dir / 'cache' / 'binned' / f'{path.stem}_x{factor}.npy'
-    if cached.exists() and cached.stat().st_mtime >= path.stat().st_mtime:
-        return np.load(cached)
-    binned = bin_volume(load_volume(tomo, source=config.source), factor, stop=stop)
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    partial = cached.with_name(cached.stem + '.partial.npy')
-    np.save(partial, binned)
-    os.replace(partial, cached)
-    return binned
+    if not (cached.exists() and cached.stat().st_mtime >= path.stat().st_mtime):
+        vol = load_volume(tomo, source=config.source)
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        partial = cached.with_name(cached.stem + '.partial.npy')
+        out = np.lib.format.open_memmap(partial, mode='w+', dtype=np.float32, shape=tuple(n // factor for n in vol.shape))
+        bin_volume(vol, factor, stop=stop, out=out)
+        out.flush()
+        del out
+        os.replace(partial, cached)
+    return np.load(cached, mmap_mode='r')
 
 # scan_tomogram: hits per kind in one tomogram, plus kinds left out because pixel size differs from the template's
 def scan_tomogram(tomo: Tomogram, templates: dict[str, Template], config: Config, known: dict[str, list[tuple[float, float, float]]], stop: Callable[[], bool] = lambda: False) -> tuple[dict[str, list[Hit]], list[str]]:
