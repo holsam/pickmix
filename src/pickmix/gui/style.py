@@ -3,6 +3,7 @@ pickmix: shared GUI text levels and spacing
 '''
 
 # Import external dependencies
+import sys
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import QAbstractButton, QAbstractItemView, QApplication, QHBoxLayout, QLabel, QLayout, QPushButton, QScrollArea, QTableWidget, QToolButton, QVBoxLayout, QWidget
@@ -51,6 +52,46 @@ HINT_STEP: float = -1.0
 
 # _SMALL_NATIVE: widget classes whose native font is smaller than a label's
 _SMALL_NATIVE: tuple[str, ...] = ('QGroupBox', 'QToolButton', 'QHeaderView')
+
+# _EXPLICIT_THEME: Qt does not repaint for setColorScheme on Linux so set palette by hand
+_EXPLICIT_THEME: bool = sys.platform.startswith('linux')
+
+# _DARK: window, base, text and highlight colours of the dark palette
+_DARK: dict[QPalette.ColorRole, str] = {
+    QPalette.ColorRole.Window: '#2b2b2b', QPalette.ColorRole.WindowText: '#e6e6e6',
+    QPalette.ColorRole.Base: '#1e1e1e', QPalette.ColorRole.AlternateBase: '#262626',
+    QPalette.ColorRole.Text: '#e6e6e6', QPalette.ColorRole.Button: '#3a3a3a',
+    QPalette.ColorRole.ButtonText: '#e6e6e6', QPalette.ColorRole.ToolTipBase: '#3a3a3a',
+    QPalette.ColorRole.ToolTipText: '#e6e6e6', QPalette.ColorRole.PlaceholderText: '#888888',
+    QPalette.ColorRole.Highlight: '#3d6fa3', QPalette.ColorRole.HighlightedText: '#ffffff',
+    QPalette.ColorRole.Link: '#5a9bd5', QPalette.ColorRole.BrightText: '#ffffff',
+    QPalette.ColorRole.Light: '#4a4a4a', QPalette.ColorRole.Midlight: '#424242',
+    QPalette.ColorRole.Mid: '#303030', QPalette.ColorRole.Dark: '#1a1a1a', QPalette.ColorRole.Shadow: '#000000',
+}
+
+# is_dark: whether application palette is dark
+def is_dark() -> bool:
+    palette = QApplication.palette()
+    return palette.color(QPalette.ColorRole.Window).lightness() < palette.color(QPalette.ColorRole.WindowText).lightness()
+
+# apply_theme: switch application to the dark or light theme
+def apply_theme(app: QApplication, dark: bool) -> None:
+    if not _EXPLICIT_THEME:
+        app.styleHints().setColorScheme(Qt.ColorScheme.Dark if dark else Qt.ColorScheme.Light)
+        return
+    app.setStyle('Fusion')
+    palette = app.style().standardPalette()
+    if dark:
+        for role, colour in _DARK.items():
+            palette.setColor(role, QColor(colour))
+        for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+            palette.setColor(QPalette.ColorGroup.Disabled, role, QColor('#808080'))
+    app.setPalette(palette)
+
+# refresh_palette: re-derive palette from the style where Qt owns theme
+def refresh_palette(app: QApplication) -> None:
+    if not _EXPLICIT_THEME:
+        app.setPalette(app.style().standardPalette())
 
 # body_pt: point size of an ordinary label, the reference every other widget is matched to
 def body_pt() -> float:
