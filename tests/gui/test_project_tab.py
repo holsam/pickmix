@@ -113,7 +113,7 @@ class TestProjectTab:
             tab = ProjectTab()
             qtbot.addWidget(tab)
             tab.set_project(project)
-            assert tab.project is None and tab.stack.currentIndex() == 0 and 'candidate-search' in tab.status.text()
+            assert tab.project is None and tab.stack.currentWidget() is tab.loading and 'candidate-search' in tab.loading.detail.text()
         tab.set_project(project)
         assert tab.project is project
 
@@ -128,3 +128,25 @@ class TestProjectTab:
         tab.close_project()
         # taking the lock again is the proof it was freed
         ProjectLock(open_project(path).config.out_dir, 'again').release()
+
+    # test_loading_page_while_opening: opening switches to the loading page, which lists the steps, then the project shows
+    def test_loading_page_while_opening(self, qtbot: QtBot, make_config: Callable[..., Path]) -> None:
+        path = make_config()
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        tab.open_config(path)
+        assert tab.stack.currentWidget() is tab.loading and tab.loading.path.toolTip() == str(path)
+        with qtbot.waitSignal(tab.project_changed):
+            pass
+        assert tab.stack.currentIndex() == 1 and 'Reading config.toml' in tab.loading.detail.text()
+
+    # test_failed_open_stays_on_loading_page: a bad config shows why with a Back button, and Back returns to the welcome page
+    def test_failed_open_stays_on_loading_page(self, qtbot: QtBot, tmp_path: Path) -> None:
+        tab = ProjectTab()
+        qtbot.addWidget(tab)
+        tab.show()
+        tab.open_config(tmp_path / 'missing.toml')
+        qtbot.waitUntil(lambda: tab.loading.back_button.isVisible())
+        assert tab.stack.currentWidget() is tab.loading and 'missing.toml' in tab.loading.detail.text() and tab.open_button.isEnabled()
+        tab.loading.back_button.click()
+        assert tab.stack.currentIndex() == 0
