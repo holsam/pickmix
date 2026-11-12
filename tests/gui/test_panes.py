@@ -18,6 +18,7 @@ from pickmix.estimates import EstimateService
 from pickmix.gui.dialogs.kind_dialog import DELETED, KindDialog
 from pickmix.gui.panes.average_pane import AveragePane
 from pickmix.gui.panes.kinds_pane import KindsPane
+from pickmix.gui.panes.loading_pane import LoadingPane
 from pickmix.gui.panes.match_pane import MatchPane
 from pickmix.gui.panes.settings_pane import NO_KIND, SettingsPane
 from pickmix.gui.panes.tomo_pane import COLOUR_CURRENT, COLOUR_PENDING, COLOUR_VISITED, TomoPane
@@ -351,6 +352,32 @@ class TestKindsPane:
         pane.show()
         qtbot.waitUntil(lambda: pane.add_button.isVisible())
         assert pane.add_button.mapTo(pane, pane.add_button.rect().topRight()).x() > pane.scroll.mapTo(pane, pane.scroll.rect().center()).x()
+
+# TestLoadingPane: loading pane
+class TestLoadingPane:
+    # test_steps_are_ticked_off: each new step ticks the one before, and the current one ends in dots
+    def test_steps_are_ticked_off(self, qtbot: QtBot) -> None:
+        pane = LoadingPane()
+        qtbot.addWidget(pane)
+        pane.begin('open', '/p/config.toml')
+        pane.step('Reading config.toml')
+        pane.step('Reading tomograms.star')
+        assert pane.detail.text() == '✓ Reading config.toml\nReading tomograms.star...' and pane.title.text() == 'Opening project'
+        pane.begin('create', '/p')
+        assert pane.detail.text() == '' and pane.title.text() == 'Creating project'
+
+    # test_fail_and_back: a failure shows the reason and Back, which announces itself
+    def test_fail_and_back(self, qtbot: QtBot) -> None:
+        pane = LoadingPane()
+        qtbot.addWidget(pane)
+        pane.show()
+        pane.begin('open', '/p/config.toml')
+        pane.fail('FileNotFoundError: nope')
+        assert pane.title.text() == 'Could not open project' and pane.detail.text() == 'FileNotFoundError: nope' and pane.back_button.isVisible()
+        with qtbot.waitSignal(pane.dismissed):
+            pane.back_button.click()
+        pane.begin('open', '/p/config.toml')
+        assert not pane.back_button.isVisible()
 
 # TestMatchPane: match pane
 class TestMatchPane:

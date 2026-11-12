@@ -31,10 +31,10 @@ _SIZE: int = 16
 _FRAME_MS: int = 80
 _FRAME_DEG: int = 30
 
-# status_icon: the icon of a status, or None without its file
-def status_icon(status: Status) -> QIcon | None:
+# status_icon: the icon of a status at an edge in pixels, or None without its file
+def status_icon(status: Status, size: int = _SIZE) -> QIcon | None:
     stem, colour, _ = STATUS_STYLE[status]
-    return tinted(stem, colour, _SIZE)
+    return tinted(stem, colour, size)
 
 # status_item: a centred table cell showing a status, empty for None
 def status_item(status: Status | None, tip: str = '') -> QTableWidgetItem:
@@ -61,9 +61,10 @@ def fit_status(state: str, flag: str) -> Status:
 # StatusBadge: one status as a label; running turns the icon, so it suits single widgets and short tables
 class StatusBadge(QLabel):
     # __init__: start empty
-    def __init__(self, status: Status | None = None, tip: str = '') -> None:
+    def __init__(self, status: Status | None = None, tip: str = '', *, size: int = _SIZE) -> None:
         super().__init__()
         self.status: Status | None = None
+        self._size = size
         self._base: QPixmap | None = None
         self._angle = 0
         self._timer = QTimer(self)
@@ -80,11 +81,11 @@ class StatusBadge(QLabel):
         self.clear()
         if status is None:
             return
-        found = status_icon(status)
+        found = status_icon(status, self._size)
         if found is None:
             self.setText(STATUS_STYLE[status][2])
             return
-        self._base = found.pixmap(_SIZE, _SIZE)
+        self._base = found.pixmap(self._size, self._size)
         self.setPixmap(self._base)
         if status == 'running':
             self._timer.start()
