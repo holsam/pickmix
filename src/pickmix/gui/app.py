@@ -32,7 +32,7 @@ def _restyle(app: QApplication, window: MainWindow) -> None:
             for widget in (top, *top.findChildren(QWidget)):
                 app.style().unpolish(widget)
                 app.style().polish(widget)
-                widget.update()
+                QWidget.update(widget)  # item views override update() to take an index
             retint(top)
         window.project_tab.welcome.update_theme_button()
     QTimer.singleShot(1, apply)
