@@ -15,6 +15,7 @@ from pickmix.gui.panes.tomograms_pane import TomogramsPane
 from pickmix.gui.panes.welcome_pane import WelcomePane
 from pickmix.gui.style import hint, icon_button, tidy, title, transparent_scroll
 from pickmix.gui.workers import run_in_background
+from pickmix.lock import ProjectBusy, ProjectLock
 from pickmix.project import Project, create_project, open_project
 from pickmix.utils.star import MergeResult
 
@@ -33,6 +34,8 @@ class ProjectTab(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.project: Project | None = None
+        # held while project is open
+        self.lock: ProjectLock | None = None
         self.welcome = WelcomePane()
         self.open_button = self.welcome.open_button
         self.new_button = self.welcome.new_button
@@ -88,8 +91,10 @@ class ProjectTab(QWidget):
         self._busy(f'Scanning tomograms for {str(path)!r}...')
         run_in_background(lambda: open_project(path), self.set_project, self._failed)
 
-    # set_project: show a project and announce it
+    # set_project: lock then show a project and announce it
     def set_project(self, project: Project) -> None:
+        if not self._lock(project):
+            return
         self.project = project
         self.title_label.setText(project.display_name)
         self.path_label.setText(str(project.path))
@@ -103,9 +108,27 @@ class ProjectTab(QWidget):
     # close_project: close the open project and go back to the welcome page
     def close_project(self) -> None:
         self.project = None
+        if self.lock is not None:
+            self.lock.release()
+            self.lock = None
         self.stack.setCurrentIndex(0)
         self.status.setText('')
         self.project_closed.emit()
+
+    # _lock: hold project's lock, keeping one already held when reloading the same project
+    def _lock(self, project: Project) -> bool:
+        out_dir = project.config.out_dir
+        if self.lock is not None and self.lock.path.parent == out_dir:
+            return True
+        try:
+            taken = ProjectLock(out_dir, 'GUI')
+        except ProjectBusy as e:
+            self._idle(str(e))
+            return False
+        if self.lock is not None:
+            self.lock.release()
+        self.lock = taken
+        return True
 
     # _kinds_saved: kinds changed, so the hotkey dropdowns list the new ones, then tell the other tabs
     def _kinds_saved(self) -> None:
